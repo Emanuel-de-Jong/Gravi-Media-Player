@@ -28,17 +28,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -88,7 +91,8 @@ fun GraviMediaPlayerApp() {
     val context = LocalContext.current
     val preferences =
         remember { context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE) }
-    var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.SELECT) }
+    var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.FOLDERS) }
+    var isPlayerExpanded by rememberSaveable { mutableStateOf(false) }
     var rootUriString by rememberSaveable {
         mutableStateOf(
             preferences.getString(
@@ -195,56 +199,21 @@ fun GraviMediaPlayerApp() {
         }
     ) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding)) {
-                when (currentDestination) {
-                    AppDestinations.SELECT -> SelectScreen(
-                        rootUriString = rootUriString,
-                        folderStack = folderStack,
-                        entries = browserEntries,
-                        onChooseFolder = { folderPicker.launch(null) },
-                        onOpenFolder = { folderStack = folderStack + it.name },
-                        onBack = { folderStack = folderStack.dropLast(1) },
-                        onPlayFolder = {
-                            val rootUri = rootUriString ?: return@SelectScreen
-                            val queue = loadRecursiveAudioItems(context, rootUri, folderStack)
-                            PlaybackService.start(context)
-                            playbackService?.playQueue(queue, 0)
-                            currentDestination = AppDestinations.PLAY
-                        },
-                        onPlayFile = { entry ->
-                            val selectedItem = entry.audioItem ?: return@SelectScreen
-                            val queue = browserEntries.mapNotNull { it.audioItem }
-                            val startIndex =
-                                queue.indexOfFirst { it.uriString == selectedItem.uriString }
-                                    .coerceAtLeast(0)
-                            PlaybackService.start(context)
-                            playbackService?.playQueue(queue, startIndex)
-                            currentDestination = AppDestinations.PLAY
-                        },
-                    )
-
-                    AppDestinations.TAGS -> TagsScreen(
-                        rootUriString = rootUriString,
-                        tagGroups = tagGroups,
-                        onChooseFolder = { folderPicker.launch(null) },
-                        onPlayTag = { tagGroup ->
-                            val startIndex = if (savedPlayOrderMode == PlayOrderMode.SHUFFLE) {
-                                Random.nextInt(tagGroup.items.size)
-                            } else {
-                                0
-                            }
-                            PlaybackService.start(context)
-                            playbackService?.playQueue(tagGroup.items, startIndex)
-                            currentDestination = AppDestinations.PLAY
-                        },
-                    )
-
-                    AppDestinations.PLAY -> PlayScreen(
+            Box(
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .fillMaxSize()
+            ) {
+                if (isPlayerExpanded) {
+                    PlayScreen(
                         snapshot = playbackSnapshot,
+                        expanded = true,
+                        onCollapse = { isPlayerExpanded = false },
                         onPlayPause = { playbackService?.togglePlayPause() },
                         onNext = { playbackService?.playNext() },
                         onPrevious = { playbackService?.playPrevious() },
                         onSeek = { playbackService?.seekTo(it) },
+                        onPlayQueueIndex = { playbackService?.playQueueIndex(it) },
                         onPlayOrderModeChanged = {
                             savedPlayOrderMode = it
                             preferences.edit().putString(KEY_PLAY_ORDER_MODE, it.name).apply()
@@ -256,11 +225,67 @@ fun GraviMediaPlayerApp() {
                             playbackService?.setLoopMode(it)
                         },
                     )
+                } else {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            when (currentDestination) {
+                                AppDestinations.FOLDERS -> FoldersScreen(
+                                    rootUriString = rootUriString,
+                                    folderStack = folderStack,
+                                    entries = browserEntries,
+                                    currentTrackCount = browserEntries.sumOf {
+                                        it.trackCount ?: if (it.audioItem != null) 1 else 0
+                                    },
+                                    onChooseFolder = { folderPicker.launch(null) },
+                                    onOpenFolder = { folderStack = folderStack + it.name },
+                                    onBack = { folderStack = folderStack.dropLast(1) },
+                                    onPlayFolder = {
+                                        val rootUri = rootUriString ?: return@FoldersScreen
+                                        val queue =
+                                            loadRecursiveAudioItems(context, rootUri, folderStack)
+                                        PlaybackService.start(context)
+                                        playbackService?.playQueue(queue, 0)
+                                    },
+                                    onPlayFile = { entry ->
+                                        val selectedItem = entry.audioItem ?: return@FoldersScreen
+                                        val queue = browserEntries.mapNotNull { it.audioItem }
+                                        val startIndex =
+                                            queue.indexOfFirst { it.uriString == selectedItem.uriString }
+                                                .coerceAtLeast(0)
+                                        PlaybackService.start(context)
+                                        playbackService?.playQueue(queue, startIndex)
+                                    },
+                                )
 
-                    AppDestinations.SETTINGS -> SettingsScreen(
-                        rootUriString = rootUriString,
-                        onChooseFolder = { folderPicker.launch(null) },
-                    )
+                                AppDestinations.GENRES -> GenresScreen(
+                                    rootUriString = rootUriString,
+                                    tagGroups = tagGroups,
+                                    onChooseFolder = { folderPicker.launch(null) },
+                                    onPlayTag = { tagGroup ->
+                                        val startIndex =
+                                            if (savedPlayOrderMode == PlayOrderMode.SHUFFLE) {
+                                                Random.nextInt(tagGroup.items.size)
+                                            } else {
+                                                0
+                                            }
+                                        PlaybackService.start(context)
+                                        playbackService?.playQueue(tagGroup.items, startIndex)
+                                    },
+                                )
+
+                                AppDestinations.SETTINGS -> SettingsScreen(
+                                    rootUriString = rootUriString,
+                                    onChooseFolder = { folderPicker.launch(null) },
+                                )
+                            }
+                        }
+                        MiniPlayer(
+                            snapshot = playbackSnapshot,
+                            onExpand = { isPlayerExpanded = true },
+                            onPlayPause = { playbackService?.togglePlayPause() },
+                            onNext = { playbackService?.playNext() },
+                        )
+                    }
                 }
             }
         }
@@ -271,17 +296,17 @@ enum class AppDestinations(
     val label: String,
     val icon: ImageVector,
 ) {
-    SELECT("Select", Icons.Filled.Folder),
-    TAGS("Tags", Icons.Filled.LocalOffer),
-    PLAY("Play", Icons.Filled.PlayCircle),
+    FOLDERS("Folders", Icons.Filled.Folder),
+    GENRES("Genres", Icons.Filled.LocalOffer),
     SETTINGS("Settings", Icons.Filled.Settings),
 }
 
 @Composable
-fun SelectScreen(
+fun FoldersScreen(
     rootUriString: String?,
     folderStack: List<String>,
     entries: List<BrowserEntry>,
+    currentTrackCount: Int,
     onChooseFolder: () -> Unit,
     onOpenFolder: (BrowserEntry) -> Unit,
     onBack: () -> Unit,
@@ -294,7 +319,11 @@ fun SelectScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Music", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "Folders",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
         if (rootUriString == null) {
             Text("Choose your music folder to start browsing local audio files.")
             Button(onClick = onChooseFolder) {
@@ -304,17 +333,24 @@ fun SelectScreen(
         }
 
         Text(
-            text = if (folderStack.isEmpty()) "Selected folder" else folderStack.joinToString(" / "),
+            text = if (folderStack.isEmpty()) "Root music folder" else folderStack.joinToString(" / "),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        Text(
+            text = "${formatTrackCount(currentTrackCount)} in this folder tree",
+            style = MaterialTheme.typography.bodySmall,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack, enabled = folderStack.isNotEmpty()) {
-                Text("Back")
+            IconButton(onClick = onBack, enabled = folderStack.isNotEmpty()) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up")
             }
-            Button(onClick = onPlayFolder) {
+            Button(onClick = onPlayFolder, enabled = currentTrackCount > 0) {
                 Text("Play this folder")
             }
+        }
+        if (entries.isEmpty()) {
+            Text("No folders or supported audio files found here. Supported extensions: ${AUDIO_EXTENSIONS.joinToString()}.")
         }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(entries, key = { it.uriString }) { entry ->
@@ -334,7 +370,7 @@ fun SelectScreen(
 }
 
 @Composable
-fun TagsScreen(
+fun GenresScreen(
     rootUriString: String?,
     tagGroups: List<TagGroup>,
     onChooseFolder: () -> Unit,
@@ -346,9 +382,13 @@ fun TagsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Tags", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "Genres",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
         if (rootUriString == null) {
-            Text("Choose your music folder before using metadata playlists.")
+            Text("Choose your music folder before using genre playlists.")
             Button(onClick = onChooseFolder) {
                 Text("Choose music folder")
             }
@@ -356,7 +396,7 @@ fun TagsScreen(
         }
 
         if (tagGroups.isEmpty()) {
-            Text("No Genre tags found. Tags are read from audio metadata each time the app starts.")
+            Text("No genre metadata was found. Genre lists are rebuilt from audio metadata every app start so file changes are picked up after restarting.")
             return@Column
         }
 
@@ -405,7 +445,59 @@ fun BrowserEntryRow(entry: BrowserEntry, onClick: () -> Unit) {
                 if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.MusicNote,
                 contentDescription = null,
             )
-            Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column {
+                Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (entry.trackCount != null) {
+                    Text(
+                        formatTrackCount(entry.trackCount),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MiniPlayer(
+    snapshot: PlaybackSnapshot,
+    onExpand: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+) {
+    val item = snapshot.currentItem ?: return
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .clickable(onClick = onExpand),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.MusicNote, contentDescription = null)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    item.folderPath.ifBlank { "Root music folder" },
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onPlayPause) {
+                Icon(
+                    if (snapshot.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (snapshot.isPlaying) "Pause" else "Play",
+                )
+            }
+            IconButton(onClick = onNext) {
+                Icon(Icons.Filled.SkipNext, contentDescription = "Next")
+            }
         }
     }
 }
@@ -413,35 +505,38 @@ fun BrowserEntryRow(entry: BrowserEntry, onClick: () -> Unit) {
 @Composable
 fun PlayScreen(
     snapshot: PlaybackSnapshot,
+    expanded: Boolean,
+    onCollapse: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Int) -> Unit,
+    onPlayQueueIndex: (Int) -> Unit,
     onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
     onLoopModeChanged: (LoopMode) -> Unit,
 ) {
     val item = snapshot.currentItem
-    var showQueue by remember { mutableStateOf(false) }
-
-    if (showQueue) {
-        QueueDialog(
-            snapshot = snapshot,
-            onDismiss = { showQueue = false },
-        )
-    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            "Now playing",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onCollapse, enabled = expanded) {
+                Icon(Icons.Filled.ExpandLess, contentDescription = "Collapse player")
+            }
+            Text(
+                "Now playing",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        }
         Card(
             modifier = Modifier.size(220.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -461,10 +556,6 @@ fun PlayScreen(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Button(onClick = { showQueue = true }, enabled = snapshot.queue.isNotEmpty()) {
-            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null)
-            Text("Queue")
-        }
         Slider(
             value = snapshot.positionMs.toFloat()
                 .coerceIn(0f, snapshot.durationMs.toFloat().coerceAtLeast(1f)),
@@ -498,40 +589,99 @@ fun PlayScreen(
                 Icon(Icons.Filled.SkipNext, contentDescription = "Next")
             }
         }
-        ModeSelectorRow(
-            label = "Order",
-            selected = snapshot.playOrderMode,
-            values = PlayOrderMode.entries,
-            onSelected = onPlayOrderModeChanged,
-        )
-        ModeSelectorRow(
-            label = "Loop",
-            selected = snapshot.loopMode,
-            values = LoopMode.entries,
-            onSelected = onLoopModeChanged,
+        PlaybackModeRow(
+            snapshot = snapshot,
+            onPlayOrderModeChanged = onPlayOrderModeChanged,
+            onLoopModeChanged = onLoopModeChanged,
         )
         if (snapshot.errorMessage != null) {
             Text(snapshot.errorMessage, color = MaterialTheme.colorScheme.error)
+        }
+        QueueList(
+            snapshot = snapshot,
+            onPlayQueueIndex = onPlayQueueIndex,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+fun PlaybackModeRow(
+    snapshot: PlaybackSnapshot,
+    onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
+    onLoopModeChanged: (LoopMode) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = { onPlayOrderModeChanged(snapshot.playOrderMode.next()) }) {
+            Icon(
+                Icons.Filled.Shuffle,
+                contentDescription = snapshot.playOrderMode.label,
+                tint = if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+        }
+        IconButton(onClick = { onLoopModeChanged(snapshot.loopMode.next()) }) {
+            Icon(
+                if (snapshot.loopMode == LoopMode.SONG) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                contentDescription = snapshot.loopMode.label,
+                tint = if (snapshot.loopMode == LoopMode.OFF) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+            )
         }
     }
 }
 
 @Composable
-fun QueueDialog(snapshot: PlaybackSnapshot, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            Button(onClick = onDismiss) {
-                Text("Close")
-            }
-        },
-        title = { Text("Queue") },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(snapshot.queue.size) { index ->
-                    val queueItem = snapshot.queue[index]
-                    val isCurrentItem = index == snapshot.currentIndex
-                    Column {
+fun QueueList(
+    snapshot: PlaybackSnapshot,
+    onPlayQueueIndex: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null)
+            Text(
+                "Queue",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(formatTrackCount(snapshot.queue.size), style = MaterialTheme.typography.bodySmall)
+        }
+        if (snapshot.queue.isEmpty()) {
+            Text("Queue is empty. Start playback from a folder, file, or genre to populate it.")
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(snapshot.queue.size) { index ->
+                val queueItem = snapshot.queue[index]
+                val isCurrentItem = index == snapshot.currentIndex
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onPlayQueueIndex(index) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isCurrentItem) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             text = if (isCurrentItem) "▶ ${queueItem.title}" else queueItem.title,
                             fontWeight = if (isCurrentItem) FontWeight.Bold else FontWeight.Normal,
@@ -545,25 +695,6 @@ fun QueueDialog(snapshot: PlaybackSnapshot, onDismiss: () -> Unit) {
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                }
-            }
-        },
-    )
-}
-
-@Composable
-fun <T> ModeSelectorRow(
-    label: String,
-    selected: T,
-    values: Iterable<T>,
-    onSelected: (T) -> Unit
-) where T : Enum<T>, T : ModeLabel {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Text(label)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            values.forEach { value ->
-                Button(onClick = { onSelected(value) }, enabled = value != selected) {
-                    Text(value.label)
                 }
             }
         }
@@ -614,6 +745,7 @@ fun loadBrowserEntries(
                     name,
                     folderPath
                 ) else null,
+                trackCount = if (document.isDirectory) countAudioFiles(document) else null,
             )
         }
 }
@@ -697,6 +829,31 @@ fun AudioItem.queueContext(): String {
         .ifBlank { "No folder or tag info" }
 }
 
+fun countAudioFiles(folder: DocumentFile): Int {
+    return folder.listFiles().sumOf { document ->
+        when {
+            document.isDirectory -> countAudioFiles(document)
+            document.isFile && isAudioFile(document.name.orEmpty()) -> 1
+            else -> 0
+        }
+    }
+}
+
+fun PlayOrderMode.next(): PlayOrderMode {
+    return when (this) {
+        PlayOrderMode.IN_ORDER -> PlayOrderMode.SHUFFLE
+        PlayOrderMode.SHUFFLE -> PlayOrderMode.IN_ORDER
+    }
+}
+
+fun LoopMode.next(): LoopMode {
+    return when (this) {
+        LoopMode.OFF -> LoopMode.QUEUE
+        LoopMode.QUEUE -> LoopMode.SONG
+        LoopMode.SONG -> LoopMode.OFF
+    }
+}
+
 fun findFolder(context: Context, rootUriString: String, folderStack: List<String>): DocumentFile? {
     var folder = DocumentFile.fromTreeUri(context, Uri.parse(rootUriString)) ?: return null
     folderStack.forEach { folderName ->
@@ -718,12 +875,20 @@ fun formatTime(milliseconds: Int): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
+fun formatTrackCount(trackCount: Int): String {
+    return if (trackCount == 1) {
+        "1 track"
+    } else {
+        "$trackCount tracks"
+    }
+}
+
 private const val PREFERENCES_NAME = "gravi_media_player"
 private const val KEY_ROOT_URI = "root_uri"
 private const val KEY_PLAY_ORDER_MODE = "play_order_mode"
 private const val KEY_LOOP_MODE = "loop_mode"
 
-private val AUDIO_EXTENSIONS =
+val AUDIO_EXTENSIONS =
     setOf("mp3", "m4a", "aac", "wav", "ogg", "flac", "opus", "mid", "midi")
 
 fun loadPlayOrderMode(preferences: android.content.SharedPreferences): PlayOrderMode {
@@ -742,10 +907,13 @@ fun PlayScreenPreview() {
     GraviMediaPlayerTheme {
         PlayScreen(
             snapshot = PlaybackSnapshot(),
+            expanded = true,
+            onCollapse = {},
             onPlayPause = {},
             onNext = {},
             onPrevious = {},
             onSeek = {},
+            onPlayQueueIndex = {},
             onPlayOrderModeChanged = {},
             onLoopModeChanged = {},
         )

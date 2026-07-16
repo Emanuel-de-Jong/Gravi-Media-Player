@@ -35,15 +35,14 @@ enum class PlayOrderMode(
 ) : ModeLabel {
     IN_ORDER("In order"),
     SHUFFLE("Shuffle"),
-    REPEAT_QUEUE("Repeat queue"),
 }
 
 enum class LoopMode(
     override val label: String,
 ) : ModeLabel {
-    OFF("No loop"),
-    SONG("Loop song"),
-    QUEUE("Loop queue"),
+    OFF("No repeat"),
+    SONG("Repeat song"),
+    QUEUE("Repeat queue"),
 }
 
 data class BrowserEntry(
@@ -51,6 +50,7 @@ data class BrowserEntry(
     val uriString: String,
     val isDirectory: Boolean,
     val audioItem: AudioItem? = null,
+    val trackCount: Int? = null,
 )
 
 data class TagGroup(

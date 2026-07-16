@@ -127,6 +127,12 @@ class PlaybackService : Service() {
         playIndex(previousIndex)
     }
 
+    fun playQueueIndex(index: Int) {
+        if (index !in snapshot.queue.indices) return
+
+        playIndex(index)
+    }
+
     fun seekTo(positionMs: Int) {
         val player = mediaPlayer ?: return
         player.seekTo(positionMs.coerceIn(0, safeDuration(player)))
@@ -195,11 +201,17 @@ class PlaybackService : Service() {
     }
 
     private fun stopPlayback() {
-        mediaPlayer?.pause()
-        snapshot = snapshot.copy(isPlaying = false)
-        updateForegroundNotification()
+        mediaPlayer?.release()
+        mediaPlayer = null
+        mediaSession?.isActive = false
+        snapshot = PlaybackSnapshot(
+            playOrderMode = snapshot.playOrderMode,
+            loopMode = snapshot.loopMode,
+        )
+        shuffledIndexes = emptyList()
+        shuffledPosition = -1
         notifyListener()
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
@@ -213,7 +225,7 @@ class PlaybackService : Service() {
                 shuffledPosition = nextPosition
                 return shuffledIndexes[shuffledPosition]
             }
-            return if (snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE) {
+            return if (snapshot.loopMode == LoopMode.QUEUE) {
                 rebuildShuffleOrder(snapshot.currentIndex)
                 shuffledPosition = 0
                 shuffledIndexes.firstOrNull()
@@ -225,7 +237,7 @@ class PlaybackService : Service() {
         val nextIndex = snapshot.currentIndex + 1
         return when {
             nextIndex in snapshot.queue.indices -> nextIndex
-            snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE -> 0
+            snapshot.loopMode == LoopMode.QUEUE -> 0
             else -> null
         }
     }
@@ -239,7 +251,7 @@ class PlaybackService : Service() {
                 shuffledPosition = previousPosition
                 return shuffledIndexes[shuffledPosition]
             }
-            return if (snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE) {
+            return if (snapshot.loopMode == LoopMode.QUEUE) {
                 shuffledPosition = shuffledIndexes.lastIndex
                 shuffledIndexes.lastOrNull()
             } else {
@@ -250,7 +262,7 @@ class PlaybackService : Service() {
         val previousIndex = snapshot.currentIndex - 1
         return when {
             previousIndex in snapshot.queue.indices -> previousIndex
-            snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE -> snapshot.queue.lastIndex
+            snapshot.loopMode == LoopMode.QUEUE -> snapshot.queue.lastIndex
             else -> null
         }
     }
@@ -301,6 +313,11 @@ class PlaybackService : Service() {
                 android.R.drawable.ic_media_next,
                 "Next",
                 servicePendingIntent(ACTION_NEXT, 3)
+            )
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop",
+                servicePendingIntent(ACTION_STOP, 4)
             )
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
