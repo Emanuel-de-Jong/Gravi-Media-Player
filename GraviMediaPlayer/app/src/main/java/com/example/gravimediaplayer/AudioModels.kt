@@ -14,6 +14,7 @@ data class AudioItem(
 
 data class PlaybackSnapshot(
     val queue: List<AudioItem> = emptyList(),
+    val queueTitle: String? = null,
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
     val playOrderMode: PlayOrderMode = PlayOrderMode.IN_ORDER,
@@ -56,4 +57,10 @@ data class BrowserEntry(
 data class TagGroup(
     val name: String,
     val items: List<AudioItem>,
+)
+
+data class PendingPlaybackRequest(
+    val queue: List<AudioItem>,
+    val startIndex: Int,
+    val queueTitle: String,
 )

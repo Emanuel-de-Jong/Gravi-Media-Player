@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +72,8 @@ import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
@@ -104,6 +107,8 @@ fun GraviMediaPlayerApp() {
     var folderStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var browserEntries by remember { mutableStateOf(emptyList<BrowserEntry>()) }
     var tagGroups by remember { mutableStateOf(emptyList<TagGroup>()) }
+    var isLibraryScanning by remember { mutableStateOf(rootUriString != null) }
+    var pendingPlaybackRequest by remember { mutableStateOf<PendingPlaybackRequest?>(null) }
     var playbackService by remember { mutableStateOf<PlaybackService?>(null) }
     var playbackSnapshot by remember { mutableStateOf(PlaybackSnapshot()) }
     var savedPlayOrderMode by rememberSaveable {
@@ -137,6 +142,10 @@ fun GraviMediaPlayerApp() {
                 boundService.setLoopMode(savedLoopMode)
                 playbackSnapshot = boundService.getSnapshot()
                 boundService.setListener { playbackSnapshot = it }
+                pendingPlaybackRequest?.let {
+                    boundService.playQueue(it.queue, it.startIndex, it.queueTitle)
+                    pendingPlaybackRequest = null
+                }
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
@@ -166,10 +175,22 @@ fun GraviMediaPlayerApp() {
 
     LaunchedEffect(rootUriString) {
         val rootUri = rootUriString
-        tagGroups = if (rootUri == null) {
-            emptyList()
+        if (rootUri == null) {
+            isLibraryScanning = false
+            tagGroups = emptyList()
         } else {
-            buildTagGroups(loadRecursiveAudioItems(context, rootUri, emptyList(), readTags = true))
+            isLibraryScanning = true
+            tagGroups = withContext(Dispatchers.IO) {
+                buildTagGroups(
+                    loadRecursiveAudioItems(
+                        context,
+                        rootUri,
+                        emptyList(),
+                        readTags = true
+                    )
+                )
+            }
+            isLibraryScanning = false
         }
     }
 
@@ -179,6 +200,11 @@ fun GraviMediaPlayerApp() {
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    if (isLibraryScanning) {
+        LibraryLoadingScreen()
+        return
     }
 
     NavigationSuiteScaffold(
@@ -243,8 +269,18 @@ fun GraviMediaPlayerApp() {
                                         val rootUri = rootUriString ?: return@FoldersScreen
                                         val queue =
                                             loadRecursiveAudioItems(context, rootUri, folderStack)
+                                        val queueTitle = if (folderStack.isEmpty()) {
+                                            "Folder: Root music folder"
+                                        } else {
+                                            "Folder: ${folderStack.joinToString(" / ")}"
+                                        }
                                         PlaybackService.start(context)
-                                        playbackService?.playQueue(queue, 0)
+                                        if (playbackService == null) {
+                                            pendingPlaybackRequest =
+                                                PendingPlaybackRequest(queue, 0, queueTitle)
+                                        } else {
+                                            playbackService?.playQueue(queue, 0, queueTitle)
+                                        }
                                     },
                                     onPlayFile = { entry ->
                                         val selectedItem = entry.audioItem ?: return@FoldersScreen
@@ -252,8 +288,25 @@ fun GraviMediaPlayerApp() {
                                         val startIndex =
                                             queue.indexOfFirst { it.uriString == selectedItem.uriString }
                                                 .coerceAtLeast(0)
+                                        val queueTitle = if (folderStack.isEmpty()) {
+                                            "Folder: Root music folder"
+                                        } else {
+                                            "Folder: ${folderStack.joinToString(" / ")}"
+                                        }
                                         PlaybackService.start(context)
-                                        playbackService?.playQueue(queue, startIndex)
+                                        if (playbackService == null) {
+                                            pendingPlaybackRequest = PendingPlaybackRequest(
+                                                queue,
+                                                startIndex,
+                                                queueTitle
+                                            )
+                                        } else {
+                                            playbackService?.playQueue(
+                                                queue,
+                                                startIndex,
+                                                queueTitle
+                                            )
+                                        }
                                     },
                                 )
 
@@ -268,8 +321,21 @@ fun GraviMediaPlayerApp() {
                                             } else {
                                                 0
                                             }
+                                        val queueTitle = "Genre: ${tagGroup.name}"
                                         PlaybackService.start(context)
-                                        playbackService?.playQueue(tagGroup.items, startIndex)
+                                        if (playbackService == null) {
+                                            pendingPlaybackRequest = PendingPlaybackRequest(
+                                                tagGroup.items,
+                                                startIndex,
+                                                queueTitle
+                                            )
+                                        } else {
+                                            playbackService?.playQueue(
+                                                tagGroup.items,
+                                                startIndex,
+                                                queueTitle
+                                            )
+                                        }
                                     },
                                 )
 
@@ -299,6 +365,23 @@ enum class AppDestinations(
     FOLDERS("Folders", Icons.Filled.Folder),
     GENRES("Genres", Icons.Filled.LocalOffer),
     SETTINGS("Settings", Icons.Filled.Settings),
+}
+
+@Composable
+fun LibraryLoadingScreen() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            CircularProgressIndicator()
+            Text("Scanning music library…", style = MaterialTheme.typography.titleMedium)
+            Text("Reading genre metadata. This can take a moment for large libraries.")
+        }
+    }
 }
 
 @Composable
@@ -483,7 +566,7 @@ fun MiniPlayer(
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    item.folderPath.ifBlank { "Root music folder" },
+                    snapshot.queueTitle ?: item.folderPath.ifBlank { "Root music folder" },
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -552,7 +635,7 @@ fun PlayScreen(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = item?.folderPath ?: "Select a file or folder to begin.",
+            text = snapshot.queueTitle ?: item?.folderPath ?: "Select a file or folder to begin.",
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -799,15 +882,15 @@ fun collectAudioItems(
 fun readGenreTags(context: Context, uri: Uri): List<String> {
     val retriever = MediaMetadataRetriever()
     return try {
-        retriever.setDataSource(context, uri)
-        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)
-            .orEmpty()
-            .split('|')
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-    } catch (_: RuntimeException) {
-        emptyList()
+        runCatching {
+            retriever.setDataSource(context, uri)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)
+                .orEmpty()
+                .split('|')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+        }.getOrDefault(emptyList())
     } finally {
         retriever.release()
     }

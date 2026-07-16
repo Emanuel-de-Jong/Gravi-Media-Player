@@ -79,7 +79,7 @@ class PlaybackService : Service() {
 
     fun getSnapshot(): PlaybackSnapshot = snapshot
 
-    fun playQueue(queue: List<AudioItem>, startIndex: Int) {
+    fun playQueue(queue: List<AudioItem>, startIndex: Int, queueTitle: String) {
         if (queue.isEmpty()) {
             snapshot = snapshot.copy(errorMessage = "No audio files found.")
             notifyListener()
@@ -89,6 +89,7 @@ class PlaybackService : Service() {
         val safeIndex = startIndex.coerceIn(queue.indices)
         snapshot = snapshot.copy(
             queue = queue,
+            queueTitle = queueTitle,
             currentIndex = safeIndex,
             positionMs = 0,
             durationMs = 0,
