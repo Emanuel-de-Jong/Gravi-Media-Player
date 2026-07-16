@@ -6,6 +6,7 @@ data class AudioItem(
     val uriString: String,
     val title: String,
     val folderPath: String,
+    val tags: List<String> = emptyList(),
 ) {
     val uri: Uri
         get() = Uri.parse(uriString)
@@ -50,4 +51,9 @@ data class BrowserEntry(
     val uriString: String,
     val isDirectory: Boolean,
     val audioItem: AudioItem? = null,
+)
+
+data class TagGroup(
+    val name: String,
+    val items: List<AudioItem>,
 )
