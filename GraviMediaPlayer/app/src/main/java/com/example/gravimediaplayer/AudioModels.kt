@@ -29,6 +29,7 @@ data class PendingPlaybackRequest(
     val queue: List<AudioItem>,
     val startIndex: Int,
     val queueTitle: String,
+    val playOrderMode: PlayOrderMode,
 )
 
 data class PlaybackSnapshot(
@@ -51,12 +52,14 @@ enum class PlayOrderMode(
 ) {
     IN_ORDER("In order"),
     SHUFFLE("Shuffle"),
+    GRAVI_SHUFFLE("Gravi shuffle"),
 }
 
 fun PlayOrderMode.next(): PlayOrderMode {
     return when (this) {
         PlayOrderMode.IN_ORDER -> PlayOrderMode.SHUFFLE
-        PlayOrderMode.SHUFFLE -> PlayOrderMode.IN_ORDER
+        PlayOrderMode.SHUFFLE -> PlayOrderMode.GRAVI_SHUFFLE
+        PlayOrderMode.GRAVI_SHUFFLE -> PlayOrderMode.IN_ORDER
     }
 }
 

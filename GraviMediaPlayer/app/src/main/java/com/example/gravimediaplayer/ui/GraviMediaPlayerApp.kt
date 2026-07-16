@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import com.example.gravimediaplayer.AudioItem
 import com.example.gravimediaplayer.BrowserEntry
+import com.example.gravimediaplayer.GraviQueuePicker
 import com.example.gravimediaplayer.LibraryRepository
 import com.example.gravimediaplayer.PendingPlaybackRequest
 import com.example.gravimediaplayer.PlayOrderMode
@@ -47,6 +49,7 @@ import kotlin.random.Random
 fun GraviMediaPlayerApp() {
     val context = LocalContext.current
     val libraryRepository = remember(context) { LibraryRepository(context) }
+    val graviQueuePicker = remember { GraviQueuePicker() }
     val preferences = remember(context) { PlayerPreferences(context) }
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.FOLDERS) }
     var isPlayerExpanded by rememberSaveable { mutableStateOf(false) }
@@ -60,6 +63,8 @@ fun GraviMediaPlayerApp() {
     var playbackSnapshot by remember { mutableStateOf(PlaybackSnapshot()) }
     var savedPlayOrderMode by rememberSaveable { mutableStateOf(preferences.playOrderMode) }
     var savedLoopMode by rememberSaveable { mutableStateOf(preferences.loopMode) }
+    var graviPickerSettings by remember { mutableStateOf(preferences.graviPickerSettings) }
+    var pendingPlaylistExport by remember { mutableStateOf<List<AudioItem>?>(null) }
 
     val folderPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -75,6 +80,14 @@ fun GraviMediaPlayerApp() {
         }
     val notificationPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val playlistExporter =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
+            val exportItems = pendingPlaylistExport
+            pendingPlaylistExport = null
+            if (uri != null && exportItems != null) {
+                writeM3u8Playlist(context, uri, exportItems)
+            }
+        }
 
     DisposableEffect(context) {
         val connection = object : ServiceConnection {
@@ -86,6 +99,9 @@ fun GraviMediaPlayerApp() {
                 playbackSnapshot = boundService.getSnapshot()
                 boundService.setListener { playbackSnapshot = it }
                 pendingPlaybackRequest?.let {
+                    savedPlayOrderMode = it.playOrderMode
+                    preferences.playOrderMode = it.playOrderMode
+                    boundService.setPlayOrderMode(it.playOrderMode)
                     boundService.playQueue(it.queue, it.startIndex, it.queueTitle)
                     pendingPlaybackRequest = null
                 }
@@ -209,8 +225,67 @@ fun GraviMediaPlayerApp() {
                                             playbackService,
                                             queue,
                                             0,
-                                            queueTitle
+                                            queueTitle,
+                                            PlayOrderMode.IN_ORDER,
                                         )
+                                    },
+                                    onShuffleFolder = {
+                                        val rootUri = rootUriString ?: return@FoldersScreen
+                                        val queue = graviQueuePicker.buildTrueShuffleQueue(
+                                            libraryRepository.loadRecursiveAudioItems(
+                                                rootUri,
+                                                folderStack
+                                            ),
+                                            graviPickerSettings.queueEntries,
+                                        )
+                                        val queueTitle =
+                                            "Shuffle: ${folderDisplayTitle(folderStack)}"
+                                        pendingPlaybackRequest = requestPlayback(
+                                            context,
+                                            playbackService,
+                                            queue,
+                                            0,
+                                            queueTitle,
+                                            PlayOrderMode.IN_ORDER,
+                                            onPlayOrderModeChanged = {
+                                                savedPlayOrderMode = it
+                                                preferences.playOrderMode = it
+                                            },
+                                        )
+                                    },
+                                    onGraviShuffleFolder = {
+                                        val rootUri = rootUriString ?: return@FoldersScreen
+                                        val queue = graviQueuePicker.buildGraviQueue(
+                                            libraryRepository.loadRecursiveAudioItems(
+                                                rootUri,
+                                                folderStack
+                                            ),
+                                            graviPickerSettings,
+                                            folderStack.joinToString("/"),
+                                        )
+                                        val queueTitle =
+                                            "Gravi shuffle: ${folderDisplayTitle(folderStack)}"
+                                        pendingPlaybackRequest = requestPlayback(
+                                            context,
+                                            playbackService,
+                                            queue,
+                                            0,
+                                            queueTitle,
+                                            PlayOrderMode.GRAVI_SHUFFLE,
+                                            onPlayOrderModeChanged = {
+                                                savedPlayOrderMode = it
+                                                preferences.playOrderMode = it
+                                            },
+                                        )
+                                    },
+                                    onExportFolder = {
+                                        val rootUri = rootUriString ?: return@FoldersScreen
+                                        val exportItems = libraryRepository.loadRecursiveAudioItems(
+                                            rootUri,
+                                            folderStack
+                                        )
+                                        pendingPlaylistExport = exportItems
+                                        playlistExporter.launch(playlistFileName(folderStack))
                                     },
                                     onPlayFile = { entry ->
                                         val selectedItem = entry.audioItem ?: return@FoldersScreen
@@ -224,7 +299,8 @@ fun GraviMediaPlayerApp() {
                                             playbackService,
                                             queue,
                                             startIndex,
-                                            queueTitle
+                                            queueTitle,
+                                            savedPlayOrderMode,
                                         )
                                     },
                                 )
@@ -244,14 +320,20 @@ fun GraviMediaPlayerApp() {
                                             playbackService,
                                             tagGroup.items,
                                             startIndex,
-                                            queueTitle
+                                            queueTitle,
+                                            savedPlayOrderMode,
                                         )
                                     },
                                 )
 
                                 AppDestinations.SETTINGS -> SettingsScreen(
                                     rootUriString = rootUriString,
+                                    graviPickerSettings = graviPickerSettings,
                                     onChooseFolder = { folderPicker.launch(null) },
+                                    onGraviPickerSettingsChanged = {
+                                        graviPickerSettings = it
+                                        preferences.graviPickerSettings = it
+                                    },
                                 )
                             }
                         }
@@ -276,18 +358,51 @@ private fun folderQueueTitle(folderStack: List<String>): String {
     }"
 }
 
+private fun folderDisplayTitle(folderStack: List<String>): String {
+    return if (folderStack.isEmpty()) "Root music folder" else folderStack.joinToString(" / ")
+}
+
+private fun playlistFileName(folderStack: List<String>): String {
+    val folderName = if (folderStack.isEmpty()) "Root music folder" else folderStack.last()
+    val safeFolderName = folderName
+        .replace(Regex("[^A-Za-z0-9._ -]"), "_")
+        .ifBlank { "playlist" }
+    return "$safeFolderName.m3u8"
+}
+
+private fun writeM3u8Playlist(context: Context, uri: Uri, items: List<AudioItem>) {
+    val playlistContent = buildM3u8Playlist(items)
+    context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+        outputStream.write(playlistContent.toByteArray(Charsets.UTF_8))
+    }
+}
+
+private fun buildM3u8Playlist(items: List<AudioItem>): String {
+    return buildString {
+        appendLine("#EXTM3U")
+        items.forEach { item ->
+            appendLine(item.uriString)
+        }
+    }
+}
+
 private fun requestPlayback(
     context: Context,
     playbackService: PlaybackService?,
     queue: List<AudioItem>,
     startIndex: Int,
     queueTitle: String,
+    playOrderMode: PlayOrderMode,
+    onPlayOrderModeChanged: ((PlayOrderMode) -> Unit)? = null,
 ): PendingPlaybackRequest? {
     PlaybackService.start(context)
+    onPlayOrderModeChanged?.invoke(playOrderMode)
+    playbackService?.setPlayOrderMode(playOrderMode)
     playbackService?.playQueue(queue, startIndex, queueTitle)
     return if (playbackService == null) PendingPlaybackRequest(
         queue,
         startIndex,
-        queueTitle
+        queueTitle,
+        playOrderMode,
     ) else null
 }

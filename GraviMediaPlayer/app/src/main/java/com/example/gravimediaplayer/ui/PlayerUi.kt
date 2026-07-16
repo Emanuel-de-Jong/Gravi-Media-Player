@@ -205,7 +205,7 @@ private fun PlaybackModeRow(
             Icon(
                 Icons.Filled.Shuffle,
                 contentDescription = snapshot.playOrderMode.label,
-                tint = if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE) {
+                tint = if (snapshot.playOrderMode != PlayOrderMode.IN_ORDER) {
                     MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.onSurface
