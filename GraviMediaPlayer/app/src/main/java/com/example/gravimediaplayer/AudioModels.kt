@@ -15,14 +15,34 @@ data class PlaybackSnapshot(
     val queue: List<AudioItem> = emptyList(),
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
-    val shuffleEnabled: Boolean = false,
-    val loopEnabled: Boolean = false,
+    val playOrderMode: PlayOrderMode = PlayOrderMode.IN_ORDER,
+    val loopMode: LoopMode = LoopMode.OFF,
     val positionMs: Int = 0,
     val durationMs: Int = 0,
     val errorMessage: String? = null,
 ) {
     val currentItem: AudioItem?
         get() = queue.getOrNull(currentIndex)
+}
+
+interface ModeLabel {
+    val label: String
+}
+
+enum class PlayOrderMode(
+    override val label: String,
+) : ModeLabel {
+    IN_ORDER("In order"),
+    SHUFFLE("Shuffle"),
+    REPEAT_QUEUE("Repeat queue"),
+}
+
+enum class LoopMode(
+    override val label: String,
+) : ModeLabel {
+    OFF("No loop"),
+    SONG("Loop song"),
+    QUEUE("Loop queue"),
 }
 
 data class BrowserEntry(

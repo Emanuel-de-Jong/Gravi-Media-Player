@@ -26,14 +26,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
@@ -46,8 +55,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -151,7 +160,7 @@ fun GraviMediaPlayerApp() {
                 item(
                     icon = {
                         Icon(
-                            painterResource(it.icon),
+                            it.icon,
                             contentDescription = it.label
                         )
                     },
@@ -197,8 +206,8 @@ fun GraviMediaPlayerApp() {
                         onNext = { playbackService?.playNext() },
                         onPrevious = { playbackService?.playPrevious() },
                         onSeek = { playbackService?.seekTo(it) },
-                        onShuffleChanged = { playbackService?.setShuffle(it) },
-                        onLoopChanged = { playbackService?.setLoop(it) },
+                        onPlayOrderModeChanged = { playbackService?.setPlayOrderMode(it) },
+                        onLoopModeChanged = { playbackService?.setLoopMode(it) },
                     )
 
                     AppDestinations.SETTINGS -> SettingsScreen(
@@ -213,11 +222,11 @@ fun GraviMediaPlayerApp() {
 
 enum class AppDestinations(
     val label: String,
-    val icon: Int,
+    val icon: ImageVector,
 ) {
-    SELECT("Select", R.drawable.ic_home),
-    PLAY("Play", R.drawable.ic_favorite),
-    SETTINGS("Settings", R.drawable.ic_account_box),
+    SELECT("Select", Icons.Filled.Folder),
+    PLAY("Play", Icons.Filled.PlayCircle),
+    SETTINGS("Settings", Icons.Filled.Settings),
 }
 
 @Composable
@@ -289,7 +298,10 @@ fun BrowserEntryRow(entry: BrowserEntry, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(if (entry.isDirectory) "📁" else "♪", style = MaterialTheme.typography.titleLarge)
+            Icon(
+                if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.MusicNote,
+                contentDescription = null,
+            )
             Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -302,8 +314,8 @@ fun PlayScreen(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Int) -> Unit,
-    onShuffleChanged: (Boolean) -> Unit,
-    onLoopChanged: (Boolean) -> Unit,
+    onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
+    onLoopModeChanged: (LoopMode) -> Unit,
 ) {
     val item = snapshot.currentItem
     Column(
@@ -352,18 +364,36 @@ fun PlayScreen(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Button(onClick = onPrevious, enabled = item != null) {
-                Text("Previous")
+            IconButton(onClick = onPrevious, enabled = item != null) {
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
             }
-            Button(onClick = onPlayPause, enabled = item != null) {
-                Text(if (snapshot.isPlaying) "Pause" else "Play")
+            IconButton(
+                onClick = onPlayPause,
+                enabled = item != null,
+                modifier = Modifier.size(72.dp),
+            ) {
+                Icon(
+                    if (snapshot.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (snapshot.isPlaying) "Pause" else "Play",
+                    modifier = Modifier.size(56.dp),
+                )
             }
-            Button(onClick = onNext, enabled = item != null) {
-                Text("Next")
+            IconButton(onClick = onNext, enabled = item != null) {
+                Icon(Icons.Filled.SkipNext, contentDescription = "Next")
             }
         }
-        SettingSwitchRow("Shuffle", snapshot.shuffleEnabled, onShuffleChanged)
-        SettingSwitchRow("Loop song", snapshot.loopEnabled, onLoopChanged)
+        ModeSelectorRow(
+            label = "Order",
+            selected = snapshot.playOrderMode,
+            values = PlayOrderMode.entries,
+            onSelected = onPlayOrderModeChanged,
+        )
+        ModeSelectorRow(
+            label = "Loop",
+            selected = snapshot.loopMode,
+            values = LoopMode.entries,
+            onSelected = onLoopModeChanged,
+        )
         if (snapshot.errorMessage != null) {
             Text(snapshot.errorMessage, color = MaterialTheme.colorScheme.error)
         }
@@ -371,14 +401,21 @@ fun PlayScreen(
 }
 
 @Composable
-fun SettingSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+fun <T> ModeSelectorRow(
+    label: String,
+    selected: T,
+    values: Iterable<T>,
+    onSelected: (T) -> Unit
+) where T : Enum<T>, T : ModeLabel {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         Text(label)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            values.forEach { value ->
+                Button(onClick = { onSelected(value) }, enabled = value != selected) {
+                    Text(value.label)
+                }
+            }
+        }
     }
 }
 
@@ -500,8 +537,8 @@ fun PlayScreenPreview() {
             onNext = {},
             onPrevious = {},
             onSeek = {},
-            onShuffleChanged = {},
-            onLoopChanged = {},
+            onPlayOrderModeChanged = {},
+            onLoopModeChanged = {},
         )
     }
 }

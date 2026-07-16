@@ -134,14 +134,14 @@ class PlaybackService : Service() {
         notifyListener()
     }
 
-    fun setShuffle(enabled: Boolean) {
-        snapshot = snapshot.copy(shuffleEnabled = enabled)
+    fun setPlayOrderMode(mode: PlayOrderMode) {
+        snapshot = snapshot.copy(playOrderMode = mode)
         rebuildShuffleOrder(snapshot.currentIndex)
         notifyListener()
     }
 
-    fun setLoop(enabled: Boolean) {
-        snapshot = snapshot.copy(loopEnabled = enabled)
+    fun setLoopMode(mode: LoopMode) {
+        snapshot = snapshot.copy(loopMode = mode)
         notifyListener()
     }
 
@@ -164,7 +164,7 @@ class PlaybackService : Service() {
                 notifyListener()
             }
             setOnCompletionListener {
-                if (snapshot.loopEnabled) {
+                if (snapshot.loopMode == LoopMode.SONG) {
                     playIndex(snapshot.currentIndex)
                 } else {
                     val nextIndex = getNextIndex()
@@ -188,6 +188,9 @@ class PlaybackService : Service() {
         }
         snapshot =
             snapshot.copy(currentIndex = index, isPlaying = false, positionMs = 0, durationMs = 0)
+        if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE && index in shuffledIndexes) {
+            shuffledPosition = shuffledIndexes.indexOf(index)
+        }
         notifyListener()
     }
 
@@ -203,38 +206,57 @@ class PlaybackService : Service() {
     private fun getNextIndex(): Int? {
         if (snapshot.queue.isEmpty()) return null
 
-        if (snapshot.shuffleEnabled) {
+        if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE) {
             if (shuffledIndexes.isEmpty()) rebuildShuffleOrder(snapshot.currentIndex)
             val nextPosition = shuffledPosition + 1
             if (nextPosition in shuffledIndexes.indices) {
                 shuffledPosition = nextPosition
                 return shuffledIndexes[shuffledPosition]
             }
-            return null
+            return if (snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE) {
+                rebuildShuffleOrder(snapshot.currentIndex)
+                shuffledPosition = 0
+                shuffledIndexes.firstOrNull()
+            } else {
+                null
+            }
         }
 
         val nextIndex = snapshot.currentIndex + 1
-        return if (nextIndex in snapshot.queue.indices) nextIndex else null
+        return when {
+            nextIndex in snapshot.queue.indices -> nextIndex
+            snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE -> 0
+            else -> null
+        }
     }
 
     private fun getPreviousIndex(): Int? {
         if (snapshot.queue.isEmpty()) return null
 
-        if (snapshot.shuffleEnabled) {
+        if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE) {
             val previousPosition = shuffledPosition - 1
             if (previousPosition in shuffledIndexes.indices) {
                 shuffledPosition = previousPosition
                 return shuffledIndexes[shuffledPosition]
             }
-            return null
+            return if (snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE) {
+                shuffledPosition = shuffledIndexes.lastIndex
+                shuffledIndexes.lastOrNull()
+            } else {
+                null
+            }
         }
 
         val previousIndex = snapshot.currentIndex - 1
-        return if (previousIndex in snapshot.queue.indices) previousIndex else null
+        return when {
+            previousIndex in snapshot.queue.indices -> previousIndex
+            snapshot.loopMode == LoopMode.QUEUE || snapshot.playOrderMode == PlayOrderMode.REPEAT_QUEUE -> snapshot.queue.lastIndex
+            else -> null
+        }
     }
 
     private fun rebuildShuffleOrder(currentIndex: Int) {
-        if (!snapshot.shuffleEnabled || snapshot.queue.isEmpty()) {
+        if (snapshot.playOrderMode != PlayOrderMode.SHUFFLE || snapshot.queue.isEmpty()) {
             shuffledIndexes = emptyList()
             shuffledPosition = -1
             return
