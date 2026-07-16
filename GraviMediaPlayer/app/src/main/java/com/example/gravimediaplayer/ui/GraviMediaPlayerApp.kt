@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import com.example.gravimediaplayer.PlaybackSnapshot
 import com.example.gravimediaplayer.PlayerPreferences
 import com.example.gravimediaplayer.TagGroup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
@@ -51,13 +53,14 @@ fun GraviMediaPlayerApp() {
     val libraryRepository = remember(context) { LibraryRepository(context) }
     val graviQueuePicker = remember { GraviQueuePicker() }
     val preferences = remember(context) { PlayerPreferences(context) }
+    val coroutineScope = rememberCoroutineScope()
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.FOLDERS) }
     var isPlayerExpanded by rememberSaveable { mutableStateOf(false) }
     var rootUriString by rememberSaveable { mutableStateOf(preferences.rootUriString) }
     var folderStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var browserEntries by remember { mutableStateOf(emptyList<BrowserEntry>()) }
     var tagGroups by remember { mutableStateOf(emptyList<TagGroup>()) }
-    var isLibraryScanning by remember { mutableStateOf(rootUriString != null) }
+    var isLibraryScanning by remember { mutableStateOf(false) }
     var pendingPlaybackRequest by remember { mutableStateOf<PendingPlaybackRequest?>(null) }
     var playbackService by remember { mutableStateOf<PlaybackService?>(null) }
     var playbackSnapshot by remember { mutableStateOf(PlaybackSnapshot()) }
@@ -65,6 +68,9 @@ fun GraviMediaPlayerApp() {
     var savedLoopMode by rememberSaveable { mutableStateOf(preferences.loopMode) }
     var graviPickerSettings by remember { mutableStateOf(preferences.graviPickerSettings) }
     var pendingPlaylistExport by remember { mutableStateOf<List<AudioItem>?>(null) }
+    var isFolderActionRunning by remember { mutableStateOf(false) }
+    var scannedGenreRootUriString by remember { mutableStateOf<String?>(null) }
+    var mediaLibraryPermissionVersion by remember { mutableStateOf(0) }
 
     val folderPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -76,10 +82,18 @@ fun GraviMediaPlayerApp() {
                 rootUriString = uri.toString()
                 preferences.rootUriString = rootUriString
                 folderStack = emptyList()
+                tagGroups = emptyList()
+                scannedGenreRootUriString = null
+                libraryRepository.clearSessionCache()
             }
         }
     val notificationPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val mediaLibraryPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            libraryRepository.clearSessionCache()
+            mediaLibraryPermissionVersion++
+        }
     val playlistExporter =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
             val exportItems = pendingPlaylistExport
@@ -123,41 +137,49 @@ fun GraviMediaPlayerApp() {
         }
     }
 
-    LaunchedEffect(rootUriString, folderStack) {
+    LaunchedEffect(rootUriString, folderStack, mediaLibraryPermissionVersion) {
         val rootUri = rootUriString
-        browserEntries = if (rootUri == null) emptyList() else libraryRepository.loadBrowserEntries(
-            rootUri,
-            folderStack
-        )
+        browserEntries = if (rootUri == null) emptyList() else withContext(Dispatchers.IO) {
+            libraryRepository.loadBrowserEntries(
+                rootUri,
+                folderStack
+            )
+        }
     }
 
-    LaunchedEffect(rootUriString) {
+    LaunchedEffect(rootUriString, currentDestination, mediaLibraryPermissionVersion) {
         val rootUri = rootUriString
         if (rootUri == null) {
             isLibraryScanning = false
             tagGroups = emptyList()
-        } else {
+            scannedGenreRootUriString = null
+        } else if (currentDestination == AppDestinations.GENRES && scannedGenreRootUriString != rootUri) {
             isLibraryScanning = true
             tagGroups = withContext(Dispatchers.IO) {
                 libraryRepository.buildTagGroups(
                     libraryRepository.loadRecursiveAudioItems(rootUri, emptyList(), readTags = true)
                 )
             }
+            scannedGenreRootUriString = rootUri
             isLibraryScanning = false
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(rootUriString) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-    }
-
-    if (isLibraryScanning) {
-        LibraryLoadingScreen()
-        return
+        rootUriString ?: return@LaunchedEffect
+        val mediaLibraryPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        if (context.checkSelfPermission(mediaLibraryPermission) != PackageManager.PERMISSION_GRANTED) {
+            mediaLibraryPermissionLauncher.launch(mediaLibraryPermission)
+        }
     }
 
     NavigationSuiteScaffold(
@@ -210,82 +232,138 @@ fun GraviMediaPlayerApp() {
                                     currentTrackCount = browserEntries.sumOf {
                                         it.trackCount ?: if (it.audioItem != null) 1 else 0
                                     },
+                                    isFolderActionRunning = isFolderActionRunning,
                                     onChooseFolder = { folderPicker.launch(null) },
                                     onOpenFolder = { folderStack = folderStack + it.name },
                                     onBack = { folderStack = folderStack.dropLast(1) },
                                     onPlayFolder = {
                                         val rootUri = rootUriString ?: return@FoldersScreen
-                                        val queue = libraryRepository.loadRecursiveAudioItems(
-                                            rootUri,
-                                            folderStack
-                                        )
-                                        val queueTitle = folderQueueTitle(folderStack)
-                                        pendingPlaybackRequest = requestPlayback(
-                                            context,
-                                            playbackService,
-                                            queue,
-                                            0,
-                                            queueTitle,
-                                            PlayOrderMode.IN_ORDER,
-                                        )
+                                        val selectedFolderStack = folderStack
+                                        coroutineScope.launch {
+                                            isFolderActionRunning = true
+                                            try {
+                                                val queue = withContext(Dispatchers.IO) {
+                                                    libraryRepository.loadRecursiveAudioItems(
+                                                        rootUri,
+                                                        selectedFolderStack
+                                                    )
+                                                }
+                                                val queueTitle =
+                                                    folderQueueTitle(selectedFolderStack)
+                                                pendingPlaybackRequest = requestPlayback(
+                                                    context,
+                                                    playbackService,
+                                                    queue,
+                                                    0,
+                                                    queueTitle,
+                                                    PlayOrderMode.IN_ORDER,
+                                                )
+                                            } finally {
+                                                isFolderActionRunning = false
+                                            }
+                                        }
                                     },
                                     onShuffleFolder = {
                                         val rootUri = rootUriString ?: return@FoldersScreen
-                                        val queue = graviQueuePicker.buildTrueShuffleQueue(
-                                            libraryRepository.loadRecursiveAudioItems(
-                                                rootUri,
-                                                folderStack
-                                            ),
-                                            graviPickerSettings.queueEntries,
-                                        )
-                                        val queueTitle =
-                                            "Shuffle: ${folderDisplayTitle(folderStack)}"
-                                        pendingPlaybackRequest = requestPlayback(
-                                            context,
-                                            playbackService,
-                                            queue,
-                                            0,
-                                            queueTitle,
-                                            PlayOrderMode.IN_ORDER,
-                                            onPlayOrderModeChanged = {
-                                                savedPlayOrderMode = it
-                                                preferences.playOrderMode = it
-                                            },
-                                        )
+                                        val selectedFolderStack = folderStack
+                                        val selectedGraviPickerSettings = graviPickerSettings
+                                        coroutineScope.launch {
+                                            isFolderActionRunning = true
+                                            try {
+                                                val queue = withContext(Dispatchers.IO) {
+                                                    graviQueuePicker.buildTrueShuffleQueue(
+                                                        libraryRepository.loadRecursiveAudioItems(
+                                                            rootUri,
+                                                            selectedFolderStack
+                                                        ),
+                                                        selectedGraviPickerSettings.queueEntries,
+                                                    )
+                                                }
+                                                val queueTitle =
+                                                    "Shuffle: ${
+                                                        folderDisplayTitle(
+                                                            selectedFolderStack
+                                                        )
+                                                    }"
+                                                pendingPlaybackRequest = requestPlayback(
+                                                    context,
+                                                    playbackService,
+                                                    queue,
+                                                    0,
+                                                    queueTitle,
+                                                    PlayOrderMode.IN_ORDER,
+                                                    onPlayOrderModeChanged = {
+                                                        savedPlayOrderMode = it
+                                                        preferences.playOrderMode = it
+                                                    },
+                                                )
+                                            } finally {
+                                                isFolderActionRunning = false
+                                            }
+                                        }
                                     },
                                     onGraviShuffleFolder = {
                                         val rootUri = rootUriString ?: return@FoldersScreen
-                                        val queue = graviQueuePicker.buildGraviQueue(
-                                            libraryRepository.loadRecursiveAudioItems(
-                                                rootUri,
-                                                folderStack
-                                            ),
-                                            graviPickerSettings,
-                                            folderStack.joinToString("/"),
-                                        )
-                                        val queueTitle =
-                                            "Gravi shuffle: ${folderDisplayTitle(folderStack)}"
-                                        pendingPlaybackRequest = requestPlayback(
-                                            context,
-                                            playbackService,
-                                            queue,
-                                            0,
-                                            queueTitle,
-                                            PlayOrderMode.GRAVI_SHUFFLE,
-                                            onPlayOrderModeChanged = {
-                                                savedPlayOrderMode = it
-                                                preferences.playOrderMode = it
-                                            },
-                                        )
+                                        val selectedFolderStack = folderStack
+                                        val selectedGraviPickerSettings = graviPickerSettings
+                                        coroutineScope.launch {
+                                            isFolderActionRunning = true
+                                            try {
+                                                val queue = withContext(Dispatchers.IO) {
+                                                    graviQueuePicker.buildGraviQueue(
+                                                        libraryRepository.loadRecursiveAudioItems(
+                                                            rootUri,
+                                                            selectedFolderStack
+                                                        ),
+                                                        selectedGraviPickerSettings,
+                                                        selectedFolderStack.joinToString("/"),
+                                                    )
+                                                }
+                                                val queueTitle =
+                                                    "Gravi shuffle: ${
+                                                        folderDisplayTitle(
+                                                            selectedFolderStack
+                                                        )
+                                                    }"
+                                                pendingPlaybackRequest = requestPlayback(
+                                                    context,
+                                                    playbackService,
+                                                    queue,
+                                                    0,
+                                                    queueTitle,
+                                                    PlayOrderMode.GRAVI_SHUFFLE,
+                                                    onPlayOrderModeChanged = {
+                                                        savedPlayOrderMode = it
+                                                        preferences.playOrderMode = it
+                                                    },
+                                                )
+                                            } finally {
+                                                isFolderActionRunning = false
+                                            }
+                                        }
                                     },
                                     onExportFolder = {
                                         val rootUri = rootUriString ?: return@FoldersScreen
-                                        val exportItems = libraryRepository.loadRecursiveAudioItems(
-                                            rootUri,
-                                            folderStack
-                                        )
-                                        pendingPlaylistExport = exportItems
-                                        playlistExporter.launch(playlistFileName(folderStack))
+                                        val selectedFolderStack = folderStack
+                                        coroutineScope.launch {
+                                            isFolderActionRunning = true
+                                            try {
+                                                val exportItems = withContext(Dispatchers.IO) {
+                                                    libraryRepository.loadRecursiveAudioItems(
+                                                        rootUri,
+                                                        selectedFolderStack
+                                                    )
+                                                }
+                                                pendingPlaylistExport = exportItems
+                                                playlistExporter.launch(
+                                                    playlistFileName(
+                                                        selectedFolderStack
+                                                    )
+                                                )
+                                            } finally {
+                                                isFolderActionRunning = false
+                                            }
+                                        }
                                     },
                                     onPlayFile = { entry ->
                                         val selectedItem = entry.audioItem ?: return@FoldersScreen
@@ -308,6 +386,7 @@ fun GraviMediaPlayerApp() {
                                 AppDestinations.GENRES -> GenresScreen(
                                     rootUriString = rootUriString,
                                     tagGroups = tagGroups,
+                                    isLibraryScanning = isLibraryScanning,
                                     onChooseFolder = { folderPicker.launch(null) },
                                     onPlayTag = { tagGroup ->
                                         val startIndex =

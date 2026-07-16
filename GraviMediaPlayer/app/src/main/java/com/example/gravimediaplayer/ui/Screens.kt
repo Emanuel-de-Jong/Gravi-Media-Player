@@ -62,6 +62,7 @@ fun FoldersScreen(
     folderStack: List<String>,
     entries: List<BrowserEntry>,
     currentTrackCount: Int,
+    isFolderActionRunning: Boolean,
     onChooseFolder: () -> Unit,
     onOpenFolder: (BrowserEntry) -> Unit,
     onBack: () -> Unit,
@@ -94,31 +95,41 @@ fun FoldersScreen(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = "${formatTrackCount(currentTrackCount)} in this folder tree",
+            text = "${formatTrackCount(currentTrackCount)} directly in this folder",
             style = MaterialTheme.typography.bodySmall,
         )
+        val hasPlayableFolderContent = entries.isNotEmpty()
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             IconButton(onClick = onBack, enabled = folderStack.isNotEmpty()) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up")
             }
             Button(
                 onClick = onPlayFolder,
-                enabled = currentTrackCount > 0
+                enabled = hasPlayableFolderContent && !isFolderActionRunning
             ) { Text("Ordered") }
             Button(
                 onClick = onShuffleFolder,
-                enabled = currentTrackCount > 0
+                enabled = hasPlayableFolderContent && !isFolderActionRunning
             ) { Text("Shuffled") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = onGraviShuffleFolder,
-                enabled = currentTrackCount > 0
+                enabled = hasPlayableFolderContent && !isFolderActionRunning
             ) { Text("Gravi") }
             Button(
                 onClick = onExportFolder,
-                enabled = currentTrackCount > 0
+                enabled = hasPlayableFolderContent && !isFolderActionRunning
             ) { Text("Export") }
+        }
+        if (isFolderActionRunning) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator()
+                Text("Preparing folder…")
+            }
         }
         if (entries.isEmpty()) {
             Text("No folders or supported audio files found here. Supported extensions: ${LibraryRepository.audioExtensions.joinToString()}.")
@@ -140,6 +151,7 @@ fun FoldersScreen(
 fun GenresScreen(
     rootUriString: String?,
     tagGroups: List<TagGroup>,
+    isLibraryScanning: Boolean,
     onChooseFolder: () -> Unit,
     onPlayTag: (TagGroup) -> Unit,
 ) {
@@ -158,6 +170,18 @@ fun GenresScreen(
             Text("Choose your music folder before using genre playlists.")
             Button(onClick = onChooseFolder) { Text("Choose music folder") }
             return@Column
+        }
+
+        if (isLibraryScanning) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator()
+                Text("Scanning music library…")
+            }
+            Text("Reading genre metadata. You can keep using the other tabs while this finishes.")
+            if (tagGroups.isEmpty()) return@Column
         }
 
         if (tagGroups.isEmpty()) {
