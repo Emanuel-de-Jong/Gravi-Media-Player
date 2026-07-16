@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MusicNote
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -419,6 +421,15 @@ fun PlayScreen(
     onLoopModeChanged: (LoopMode) -> Unit,
 ) {
     val item = snapshot.currentItem
+    var showQueue by remember { mutableStateOf(false) }
+
+    if (showQueue) {
+        QueueDialog(
+            snapshot = snapshot,
+            onDismiss = { showQueue = false },
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -450,6 +461,10 @@ fun PlayScreen(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        Button(onClick = { showQueue = true }, enabled = snapshot.queue.isNotEmpty()) {
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null)
+            Text("Queue")
+        }
         Slider(
             value = snapshot.positionMs.toFloat()
                 .coerceIn(0f, snapshot.durationMs.toFloat().coerceAtLeast(1f)),
@@ -499,6 +514,41 @@ fun PlayScreen(
             Text(snapshot.errorMessage, color = MaterialTheme.colorScheme.error)
         }
     }
+}
+
+@Composable
+fun QueueDialog(snapshot: PlaybackSnapshot, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+        title = { Text("Queue") },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(snapshot.queue.size) { index ->
+                    val queueItem = snapshot.queue[index]
+                    val isCurrentItem = index == snapshot.currentIndex
+                    Column {
+                        Text(
+                            text = if (isCurrentItem) "▶ ${queueItem.title}" else queueItem.title,
+                            fontWeight = if (isCurrentItem) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = queueItem.queueContext(),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -637,6 +687,14 @@ fun buildTagGroups(items: List<AudioItem>): List<TagGroup> {
         .groupBy({ it.first }, { it.second })
         .map { TagGroup(it.key, it.value.distinctBy { item -> item.uriString }) }
         .sortedBy { it.name.lowercase() }
+}
+
+fun AudioItem.queueContext(): String {
+    val tagText = tags.takeIf { it.isNotEmpty() }?.joinToString(" | ")
+    return listOf(folderPath, tagText)
+        .filter { !it.isNullOrBlank() }
+        .joinToString(" • ")
+        .ifBlank { "No folder or tag info" }
 }
 
 fun findFolder(context: Context, rootUriString: String, folderStack: List<String>): DocumentFile? {
