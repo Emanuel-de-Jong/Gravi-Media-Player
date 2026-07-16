@@ -10,6 +10,10 @@ import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.security.MessageDigest
 
 class LibraryRepository(private val context: Context) {
     private val recursiveAudioItemsCache = mutableMapOf<String, List<AudioItem>>()
@@ -73,6 +77,39 @@ class LibraryRepository(private val context: Context) {
             .sortedBy { it.name.lowercase() }
     }
 
+    fun loadCachedGenreAudioItems(rootUriString: String): List<AudioItem> {
+        val audioFiles = loadAudioFiles(rootUriString)
+        val cachedFiles = loadGenreCache(rootUriString)
+            .associateBy { it.uriString }
+        val updatedFiles = audioFiles.map { audioFile ->
+            val cachedFile = cachedFiles[audioFile.uriString]
+            if (cachedFile != null && cachedFile.matches(audioFile)) {
+                cachedFile.copy(
+                    title = audioFile.title,
+                    folderPath = audioFile.folderPath,
+                )
+            } else {
+                GenreCacheFile(
+                    audioFile.uriString,
+                    audioFile.title,
+                    audioFile.folderPath,
+                    audioFile.lastModifiedMs,
+                    audioFile.sizeBytes,
+                    readGenreTags(Uri.parse(audioFile.uriString)),
+                )
+            }
+        }
+        saveGenreCache(rootUriString, updatedFiles)
+        return updatedFiles.map { cachedFile ->
+            AudioItem(
+                cachedFile.uriString,
+                cachedFile.title,
+                cachedFile.folderPath,
+                cachedFile.tags,
+            )
+        }
+    }
+
     fun clearSessionCache() {
         recursiveAudioItemsCache.clear()
     }
@@ -119,6 +156,17 @@ class LibraryRepository(private val context: Context) {
         rootUriString: String,
         readTags: Boolean
     ): List<AudioItem>? {
+        return loadMediaStoreAudioFiles(rootUriString)?.map { audioFile ->
+            AudioItem(
+                audioFile.uriString,
+                audioFile.title,
+                audioFile.folderPath,
+                if (readTags) readGenreTags(Uri.parse(audioFile.uriString)) else emptyList(),
+            )
+        }
+    }
+
+    private fun loadMediaStoreAudioFiles(rootUriString: String): List<AudioFileSnapshot>? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         if (!hasMediaStorePermission()) return null
 
@@ -126,7 +174,7 @@ class LibraryRepository(private val context: Context) {
         val normalizedRootPath = rootPath.trim('/').let {
             if (it.isBlank()) "" else "$it/"
         }
-        val items = mutableListOf<AudioItem>()
+        val audioFiles = mutableListOf<AudioFileSnapshot>()
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         } else {
@@ -136,6 +184,8 @@ class LibraryRepository(private val context: Context) {
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.RELATIVE_PATH,
+            MediaStore.Audio.Media.DATE_MODIFIED,
+            MediaStore.Audio.Media.SIZE,
         )
         val selection = if (normalizedRootPath.isBlank()) {
             "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -156,6 +206,8 @@ class LibraryRepository(private val context: Context) {
             val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val relativePathColumn =
                 cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
+            val modifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             while (cursor.moveToNext()) {
                 val name = cursor.getStringOrEmpty(nameColumn)
                 if (!isAudioFile(name)) continue
@@ -166,16 +218,17 @@ class LibraryRepository(private val context: Context) {
                 val folderPath = relativePath
                     .removePrefix(rootPath.trim('/'))
                     .trim('/')
-                items += AudioItem(
+                audioFiles += AudioFileSnapshot(
                     uri.toString(),
                     name,
                     folderPath,
-                    if (readTags) readGenreTags(uri) else emptyList(),
+                    cursor.getLongOrZero(modifiedColumn) * 1000,
+                    cursor.getLongOrZero(sizeColumn),
                 )
             }
         }
 
-        return items
+        return audioFiles
     }
 
     private fun mediaStoreRootPath(rootUriString: String): String? {
@@ -202,6 +255,29 @@ class LibraryRepository(private val context: Context) {
         folderPath: String,
         readTags: Boolean
     ): List<AudioItem> {
+        return collectAudioFiles(rootUri, folderDocumentId, folderPath).map { audioFile ->
+            AudioItem(
+                audioFile.uriString,
+                audioFile.title,
+                audioFile.folderPath,
+                if (readTags) readGenreTags(Uri.parse(audioFile.uriString)) else emptyList(),
+            )
+        }
+    }
+
+    private fun loadAudioFiles(rootUriString: String): List<AudioFileSnapshot> {
+        loadMediaStoreAudioFiles(rootUriString)?.let { return it }
+
+        val rootUri = Uri.parse(rootUriString)
+        val folderDocumentId = findFolderDocumentId(rootUri, emptyList()) ?: return emptyList()
+        return collectAudioFiles(rootUri, folderDocumentId, "")
+    }
+
+    private fun collectAudioFiles(
+        rootUri: Uri,
+        folderDocumentId: String,
+        folderPath: String,
+    ): List<AudioFileSnapshot> {
         return queryChildDocuments(rootUri, folderDocumentId)
             .sortedWith(compareBy<LibraryDocument> { !it.isDirectory }.thenBy { it.name.lowercase() })
             .flatMap { document ->
@@ -209,25 +285,72 @@ class LibraryRepository(private val context: Context) {
                 val childFolderPath =
                     listOf(folderPath, name).filter { it.isNotBlank() }.joinToString("/")
                 when {
-                    document.isDirectory -> collectAudioItems(
+                    document.isDirectory -> collectAudioFiles(
                         rootUri,
                         document.documentId,
                         childFolderPath,
-                        readTags
                     )
 
                     isAudioFile(name) -> listOf(
-                        AudioItem(
+                        AudioFileSnapshot(
                             document.uriString,
                             name,
                             folderPath,
-                            if (readTags) readGenreTags(Uri.parse(document.uriString)) else emptyList(),
+                            document.lastModifiedMs,
+                            document.sizeBytes,
                         )
                     )
 
                     else -> emptyList()
                 }
             }
+    }
+
+    private fun loadGenreCache(rootUriString: String): List<GenreCacheFile> {
+        val cacheFile = genreCacheFile(rootUriString)
+        if (!cacheFile.exists()) return emptyList()
+
+        return runCatching {
+            val json = JSONObject(cacheFile.readText())
+            if (json.optString("rootUriString") != rootUriString) return emptyList()
+
+            val files = json.optJSONArray("files") ?: JSONArray()
+            (0 until files.length()).mapNotNull { index ->
+                val file = files.optJSONObject(index) ?: return@mapNotNull null
+                GenreCacheFile(
+                    file.optString("uriString"),
+                    file.optString("title"),
+                    file.optString("folderPath"),
+                    file.optLong("lastModifiedMs"),
+                    file.optLong("sizeBytes"),
+                    file.optJSONArray("tags").orEmptyStringList(),
+                ).takeIf { it.uriString.isNotBlank() }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun saveGenreCache(rootUriString: String, files: List<GenreCacheFile>) {
+        val jsonFiles = JSONArray()
+        files.forEach { file ->
+            jsonFiles.put(
+                JSONObject()
+                    .put("uriString", file.uriString)
+                    .put("title", file.title)
+                    .put("folderPath", file.folderPath)
+                    .put("lastModifiedMs", file.lastModifiedMs)
+                    .put("sizeBytes", file.sizeBytes)
+                    .put("tags", JSONArray(file.tags))
+            )
+        }
+        val json = JSONObject()
+            .put("rootUriString", rootUriString)
+            .put("scannedAtMs", System.currentTimeMillis())
+            .put("files", jsonFiles)
+        genreCacheFile(rootUriString).writeText(json.toString())
+    }
+
+    private fun genreCacheFile(rootUriString: String): File {
+        return File(context.filesDir, "genre_cache_${rootUriString.sha256()}.json")
     }
 
     private fun readGenreTags(uri: Uri): List<String> {
@@ -265,6 +388,8 @@ class LibraryRepository(private val context: Context) {
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            DocumentsContract.Document.COLUMN_SIZE,
         )
         val documents = mutableListOf<LibraryDocument>()
         context.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
@@ -274,6 +399,9 @@ class LibraryRepository(private val context: Context) {
                 cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val mimeTypeColumn =
                 cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val modifiedColumn =
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            val sizeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
             while (cursor.moveToNext()) {
                 val documentId = cursor.getStringOrEmpty(documentIdColumn)
                 val name = cursor.getStringOrEmpty(nameColumn)
@@ -285,6 +413,8 @@ class LibraryRepository(private val context: Context) {
                     name,
                     DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId).toString(),
                     mimeType == DocumentsContract.Document.MIME_TYPE_DIR,
+                    cursor.getLongOrZero(modifiedColumn),
+                    cursor.getLongOrZero(sizeColumn),
                 )
             }
         }
@@ -300,6 +430,20 @@ class LibraryRepository(private val context: Context) {
         return if (isNull(columnIndex)) "" else getString(columnIndex).orEmpty()
     }
 
+    private fun Cursor.getLongOrZero(columnIndex: Int): Long {
+        return if (isNull(columnIndex)) 0 else getLong(columnIndex)
+    }
+
+    private fun JSONArray?.orEmptyStringList(): List<String> {
+        if (this == null) return emptyList()
+        return (0 until length()).mapNotNull { index -> optString(index).takeIf { it.isNotBlank() } }
+    }
+
+    private fun String.sha256(): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
     companion object {
         val audioExtensions =
             setOf("mp3", "m4a", "aac", "wav", "ogg", "flac", "opus", "mid", "midi")
@@ -311,4 +455,29 @@ private data class LibraryDocument(
     val name: String,
     val uriString: String,
     val isDirectory: Boolean,
+    val lastModifiedMs: Long,
+    val sizeBytes: Long,
 )
+
+private data class AudioFileSnapshot(
+    val uriString: String,
+    val title: String,
+    val folderPath: String,
+    val lastModifiedMs: Long,
+    val sizeBytes: Long,
+)
+
+private data class GenreCacheFile(
+    val uriString: String,
+    val title: String,
+    val folderPath: String,
+    val lastModifiedMs: Long,
+    val sizeBytes: Long,
+    val tags: List<String>,
+) {
+    fun matches(audioFile: AudioFileSnapshot): Boolean {
+        return uriString == audioFile.uriString &&
+                lastModifiedMs == audioFile.lastModifiedMs &&
+                sizeBytes == audioFile.sizeBytes
+    }
+}

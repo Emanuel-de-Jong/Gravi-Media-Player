@@ -157,7 +157,7 @@ fun GraviMediaPlayerApp() {
             isLibraryScanning = true
             tagGroups = withContext(Dispatchers.IO) {
                 libraryRepository.buildTagGroups(
-                    libraryRepository.loadRecursiveAudioItems(rootUri, emptyList(), readTags = true)
+                    libraryRepository.loadCachedGenreAudioItems(rootUri)
                 )
             }
             scannedGenreRootUriString = rootUri
