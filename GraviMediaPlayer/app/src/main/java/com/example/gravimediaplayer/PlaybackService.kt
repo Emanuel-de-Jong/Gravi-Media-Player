@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.media.MediaPlayer
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -17,11 +16,15 @@ import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 
 class PlaybackService : Service() {
     private val binder = PlaybackBinder()
     private val handler = Handler(Looper.getMainLooper())
-    private var mediaPlayer: MediaPlayer? = null
+    private var player: ExoPlayer? = null
     private var mediaSession: MediaSessionCompat? = null
     private var listener: ((PlaybackSnapshot) -> Unit)? = null
     private var snapshot = PlaybackSnapshot()
@@ -30,7 +33,7 @@ class PlaybackService : Service() {
 
     private val progressUpdater = object : Runnable {
         override fun run() {
-            mediaPlayer?.let {
+            player?.let {
                 snapshot = snapshot.copy(
                     positionMs = safePosition(it),
                     durationMs = safeDuration(it),
@@ -48,6 +51,8 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        player = ExoPlayer.Builder(this).build()
+        player?.addListener(playbackListener)
         mediaSession = MediaSessionCompat(this, "Gravi Media Player")
         handler.post(progressUpdater)
     }
@@ -67,7 +72,7 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(progressUpdater)
-        mediaPlayer?.release()
+        player?.release()
         mediaSession?.release()
         super.onDestroy()
     }
@@ -100,13 +105,13 @@ class PlaybackService : Service() {
     }
 
     fun togglePlayPause() {
-        val player = mediaPlayer ?: return
-        if (player.isPlaying) {
-            player.pause()
-            snapshot = snapshot.copy(isPlaying = false, positionMs = safePosition(player))
+        val currentPlayer = player ?: return
+        if (currentPlayer.isPlaying) {
+            currentPlayer.pause()
+            snapshot = snapshot.copy(isPlaying = false, positionMs = safePosition(currentPlayer))
         } else {
-            player.start()
-            snapshot = snapshot.copy(isPlaying = true, positionMs = safePosition(player))
+            currentPlayer.play()
+            snapshot = snapshot.copy(isPlaying = true, positionMs = safePosition(currentPlayer))
         }
         updateForegroundNotification()
         notifyListener()
@@ -118,8 +123,8 @@ class PlaybackService : Service() {
     }
 
     fun playPrevious() {
-        val player = mediaPlayer
-        if (player != null && safePosition(player) > 3000) {
+        val currentPlayer = player
+        if (currentPlayer != null && safePosition(currentPlayer) > 3000) {
             seekTo(0)
             return
         }
@@ -135,9 +140,9 @@ class PlaybackService : Service() {
     }
 
     fun seekTo(positionMs: Int) {
-        val player = mediaPlayer ?: return
-        player.seekTo(positionMs.coerceIn(0, safeDuration(player)))
-        snapshot = snapshot.copy(positionMs = safePosition(player))
+        val currentPlayer = player ?: return
+        currentPlayer.seekTo(positionMs.coerceIn(0, safeDuration(currentPlayer)).toLong())
+        snapshot = snapshot.copy(positionMs = safePosition(currentPlayer))
         notifyListener()
     }
 
@@ -154,56 +159,30 @@ class PlaybackService : Service() {
 
     private fun playIndex(index: Int) {
         val item = snapshot.queue.getOrNull(index) ?: return
-        mediaPlayer?.release()
-        mediaPlayer = MediaPlayer().apply {
-            setDataSource(this@PlaybackService, item.uri)
-            setOnPreparedListener {
-                it.start()
-                snapshot = snapshot.copy(
-                    currentIndex = index,
-                    isPlaying = true,
-                    positionMs = 0,
-                    durationMs = safeDuration(it),
-                    errorMessage = null,
-                )
-                mediaSession?.isActive = true
-                updateForegroundNotification()
-                notifyListener()
-            }
-            setOnCompletionListener {
-                if (snapshot.loopMode == LoopMode.SONG) {
-                    playIndex(snapshot.currentIndex)
-                } else {
-                    val nextIndex = getNextIndex()
-                    if (nextIndex == null) {
-                        snapshot = snapshot.copy(isPlaying = false, positionMs = safeDuration(it))
-                        updateForegroundNotification()
-                        notifyListener()
-                    } else {
-                        playIndex(nextIndex)
-                    }
-                }
-            }
-            setOnErrorListener { _, _, _ ->
-                snapshot =
-                    snapshot.copy(isPlaying = false, errorMessage = "Unable to play this file.")
-                updateForegroundNotification()
-                notifyListener()
-                true
-            }
-            prepareAsync()
-        }
-        snapshot =
-            snapshot.copy(currentIndex = index, isPlaying = false, positionMs = 0, durationMs = 0)
+        val currentPlayer = player ?: return
+        currentPlayer.stop()
+        currentPlayer.clearMediaItems()
+        currentPlayer.setMediaItem(MediaItem.fromUri(item.uri))
+        currentPlayer.prepare()
+        currentPlayer.play()
+        snapshot = snapshot.copy(
+            currentIndex = index,
+            isPlaying = true,
+            positionMs = 0,
+            durationMs = 0,
+            errorMessage = null
+        )
         if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE && index in shuffledIndexes) {
             shuffledPosition = shuffledIndexes.indexOf(index)
         }
+        mediaSession?.isActive = true
+        updateForegroundNotification()
         notifyListener()
     }
 
     private fun stopPlayback() {
-        mediaPlayer?.release()
-        mediaPlayer = null
+        player?.stop()
+        player?.clearMediaItems()
         mediaSession?.isActive = false
         snapshot = PlaybackSnapshot(
             playOrderMode = snapshot.playOrderMode,
@@ -214,6 +193,49 @@ class PlaybackService : Service() {
         notifyListener()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private val playbackListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            when (playbackState) {
+                Player.STATE_READY -> updatePlaybackState()
+                Player.STATE_ENDED -> handlePlaybackEnded()
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            snapshot = snapshot.copy(isPlaying = false, errorMessage = "Unable to play this file.")
+            updateForegroundNotification()
+            notifyListener()
+        }
+    }
+
+    private fun updatePlaybackState() {
+        val currentPlayer = player ?: return
+        snapshot = snapshot.copy(
+            isPlaying = currentPlayer.isPlaying,
+            positionMs = safePosition(currentPlayer),
+            durationMs = safeDuration(currentPlayer),
+            errorMessage = null,
+        )
+        updateForegroundNotification()
+        notifyListener()
+    }
+
+    private fun handlePlaybackEnded() {
+        if (snapshot.loopMode == LoopMode.SONG) {
+            playIndex(snapshot.currentIndex)
+            return
+        }
+
+        val nextIndex = getNextIndex()
+        if (nextIndex == null) {
+            snapshot = snapshot.copy(isPlaying = false, positionMs = snapshot.durationMs)
+            updateForegroundNotification()
+            notifyListener()
+        } else {
+            playIndex(nextIndex)
+        }
     }
 
     private fun getNextIndex(): Int? {
@@ -354,12 +376,12 @@ class PlaybackService : Service() {
         listener?.invoke(snapshot)
     }
 
-    private fun safePosition(player: MediaPlayer): Int {
-        return runCatching { player.currentPosition }.getOrDefault(0)
+    private fun safePosition(player: Player): Int {
+        return runCatching { player.currentPosition.toInt() }.getOrDefault(0).coerceAtLeast(0)
     }
 
-    private fun safeDuration(player: MediaPlayer): Int {
-        return runCatching { player.duration }.getOrDefault(0).coerceAtLeast(0)
+    private fun safeDuration(player: Player): Int {
+        return runCatching { player.duration.toInt() }.getOrDefault(0).coerceAtLeast(0)
     }
 
     companion object {

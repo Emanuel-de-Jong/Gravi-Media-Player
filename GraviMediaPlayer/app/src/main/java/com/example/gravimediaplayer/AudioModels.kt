@@ -12,40 +12,6 @@ data class AudioItem(
         get() = Uri.parse(uriString)
 }
 
-data class PlaybackSnapshot(
-    val queue: List<AudioItem> = emptyList(),
-    val queueTitle: String? = null,
-    val currentIndex: Int = -1,
-    val isPlaying: Boolean = false,
-    val playOrderMode: PlayOrderMode = PlayOrderMode.IN_ORDER,
-    val loopMode: LoopMode = LoopMode.OFF,
-    val positionMs: Int = 0,
-    val durationMs: Int = 0,
-    val errorMessage: String? = null,
-) {
-    val currentItem: AudioItem?
-        get() = queue.getOrNull(currentIndex)
-}
-
-interface ModeLabel {
-    val label: String
-}
-
-enum class PlayOrderMode(
-    override val label: String,
-) : ModeLabel {
-    IN_ORDER("In order"),
-    SHUFFLE("Shuffle"),
-}
-
-enum class LoopMode(
-    override val label: String,
-) : ModeLabel {
-    OFF("No repeat"),
-    SONG("Repeat song"),
-    QUEUE("Repeat queue"),
-}
-
 data class BrowserEntry(
     val name: String,
     val uriString: String,
@@ -64,3 +30,48 @@ data class PendingPlaybackRequest(
     val startIndex: Int,
     val queueTitle: String,
 )
+
+data class PlaybackSnapshot(
+    val queue: List<AudioItem> = emptyList(),
+    val queueTitle: String? = null,
+    val currentIndex: Int = -1,
+    val isPlaying: Boolean = false,
+    val playOrderMode: PlayOrderMode = PlayOrderMode.IN_ORDER,
+    val loopMode: LoopMode = LoopMode.OFF,
+    val positionMs: Int = 0,
+    val durationMs: Int = 0,
+    val errorMessage: String? = null,
+) {
+    val currentItem: AudioItem?
+        get() = queue.getOrNull(currentIndex)
+}
+
+enum class PlayOrderMode(
+    val label: String,
+) {
+    IN_ORDER("In order"),
+    SHUFFLE("Shuffle"),
+}
+
+fun PlayOrderMode.next(): PlayOrderMode {
+    return when (this) {
+        PlayOrderMode.IN_ORDER -> PlayOrderMode.SHUFFLE
+        PlayOrderMode.SHUFFLE -> PlayOrderMode.IN_ORDER
+    }
+}
+
+enum class LoopMode(
+    val label: String,
+) {
+    OFF("No repeat"),
+    SONG("Repeat song"),
+    QUEUE("Repeat queue"),
+}
+
+fun LoopMode.next(): LoopMode {
+    return when (this) {
+        LoopMode.OFF -> LoopMode.QUEUE
+        LoopMode.QUEUE -> LoopMode.SONG
+        LoopMode.SONG -> LoopMode.OFF
+    }
+}
