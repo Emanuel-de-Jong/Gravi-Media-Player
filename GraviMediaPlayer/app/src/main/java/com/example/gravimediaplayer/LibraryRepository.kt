@@ -375,6 +375,8 @@ class LibraryRepository(private val context: Context) {
                 val folderPath = relativePath
                     .removePrefix(rootPath.trim('/'))
                     .trim('/')
+                if (isInHiddenFolder(folderPath)) continue
+
                 audioFiles += AudioFileSnapshot(
                     uri.toString(),
                     name,
@@ -422,6 +424,7 @@ class LibraryRepository(private val context: Context) {
         audioFilesCache[rootUriString]?.let { return it }
 
         loadMediaStoreAudioFiles(rootUriString)?.let {
+            pruneAudioMetadataCache(rootUriString, it)
             audioFilesCache[rootUriString] = it
             return it
         }
@@ -429,8 +432,22 @@ class LibraryRepository(private val context: Context) {
         val rootUri = Uri.parse(rootUriString)
         val folderDocumentId = findFolderDocumentId(rootUri, emptyList()) ?: return emptyList()
         val audioFiles = collectAudioFiles(rootUri, folderDocumentId, "")
+        pruneAudioMetadataCache(rootUriString, audioFiles)
         audioFilesCache[rootUriString] = audioFiles
         return audioFiles
+    }
+
+    private fun pruneAudioMetadataCache(
+        rootUriString: String,
+        audioFiles: List<AudioFileSnapshot>
+    ) {
+        if (!audioMetadataCacheFile(rootUriString).exists()) return
+
+        val metadataFilesByUri = loadAudioMetadataCache(rootUriString)
+        val audioFileUriStrings = audioFiles.map { it.uriString }.toSet()
+        if (metadataFilesByUri.keys.removeAll { it !in audioFileUriStrings }) {
+            saveAudioMetadataCache(rootUriString, metadataFilesByUri.values.toList())
+        }
     }
 
     private fun collectAudioFiles(
@@ -442,6 +459,10 @@ class LibraryRepository(private val context: Context) {
             .sortedWith(compareBy<LibraryDocument> { !it.isDirectory }.thenBy { it.name.lowercase() })
             .flatMap { document ->
                 val name = document.name
+                if (document.isDirectory && name.startsWith('.')) {
+                    return@flatMap emptyList()
+                }
+
                 val childFolderPath =
                     listOf(folderPath, name).filter { it.isNotBlank() }.joinToString("/")
                 when {
@@ -572,6 +593,10 @@ class LibraryRepository(private val context: Context) {
             .put("scannedAtMs", System.currentTimeMillis())
             .put("files", jsonFiles)
         audioMetadataCacheFile(rootUriString).writeText(json.toString())
+    }
+
+    private fun isInHiddenFolder(folderPath: String): Boolean {
+        return folderPath.split('/').any { it.startsWith('.') }
     }
 
     private fun audioMetadataCacheFile(rootUriString: String): File {
