@@ -24,9 +24,9 @@ class PlayerPreferences(context: Context) {
         }
 
     var genreSeparator: String
-        get() = preferences.getString(KEY_GENRE_SEPARATOR, "|").orEmpty().ifBlank { "|" }
+        get() = preferences.getString(KEY_GENRE_SEPARATOR, ";").orEmpty().ifBlank { ";" }
         set(value) {
-            preferences.edit().putString(KEY_GENRE_SEPARATOR, value.ifBlank { "|" }).apply()
+            preferences.edit().putString(KEY_GENRE_SEPARATOR, value.ifBlank { ";" }).apply()
         }
 
     var showBrowserThumbnails: Boolean

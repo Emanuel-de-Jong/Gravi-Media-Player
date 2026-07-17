@@ -127,7 +127,7 @@ fun FoldersScreen(
             SearchTextField(
                 value = searchQuery,
                 onValueChange = onSearchQueryChanged,
-                label = "Search...",
+                label = "Search",
                 modifier = Modifier.weight(1f),
             )
             BrowserSortModeSelector(sortMode, onSortModeChanged)
@@ -304,7 +304,7 @@ fun GenresScreen(
             SearchTextField(
                 value = searchQuery,
                 onValueChange = onSearchQueryChanged,
-                label = "Search...",
+                label = "Search",
                 modifier = Modifier.weight(1f),
             )
             SortDirectionButton(sortAscending, onToggleSortDirection)

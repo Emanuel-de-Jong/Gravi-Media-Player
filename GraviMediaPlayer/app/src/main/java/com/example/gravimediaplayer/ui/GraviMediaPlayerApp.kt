@@ -531,7 +531,7 @@ fun GraviMediaPlayerApp() {
                                 },
                                 onApplyGenreSeparator = {
                                     genreSeparator = it
-                                    appliedGenreSeparator = it.ifBlank { "|" }
+                                    appliedGenreSeparator = it.ifBlank { ";" }
                                     preferences.genreSeparator = it
                                     tagGroups = emptyList()
                                     cacheGenerationRequest++

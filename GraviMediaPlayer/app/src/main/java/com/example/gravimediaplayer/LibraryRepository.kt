@@ -80,7 +80,7 @@ class LibraryRepository(private val context: Context) {
         readTags: Boolean = false,
     ): List<AudioItem> {
         val cacheKey = listOf(rootUriString, folderStack.joinToString("/"), readTags.toString())
-            .joinToString("|")
+            .joinToString(";")
         recursiveAudioItemsCache[cacheKey]?.let { return it }
 
         val folderPath = folderStack.joinToString("/")
@@ -317,7 +317,7 @@ class LibraryRepository(private val context: Context) {
         readTags: Boolean
     ): List<AudioItem>? {
         return loadMediaStoreAudioFiles(rootUriString)?.let { audioFiles ->
-            buildAudioItems(rootUriString, audioFiles, if (readTags) "|" else null)
+            buildAudioItems(rootUriString, audioFiles, if (readTags) ";" else null)
         }
     }
 
@@ -414,7 +414,7 @@ class LibraryRepository(private val context: Context) {
         readTags: Boolean
     ): List<AudioItem> {
         return collectAudioFiles(rootUri, folderDocumentId, folderPath).map { audioFile ->
-            audioFile.toAudioItem(if (readTags) "|" else null)
+            audioFile.toAudioItem(if (readTags) ";" else null)
         }
     }
 
@@ -477,7 +477,7 @@ class LibraryRepository(private val context: Context) {
         return runCatching {
             val json = JSONObject(cacheFile.readText())
             if (json.optString("rootUriString") != rootUriString) return emptyList()
-            if (json.optString("genreSeparator", "|") != genreSeparator) return emptyList()
+            if (json.optString("genreSeparator", ";") != genreSeparator) return emptyList()
 
             val files = json.optJSONArray("files") ?: JSONArray()
             (0 until files.length()).mapNotNull { index ->
@@ -609,7 +609,7 @@ class LibraryRepository(private val context: Context) {
                 retriever.setDataSource(context, uri)
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)
                     .orEmpty()
-                    .split(genreSeparator.ifBlank { "|" })
+                    .split(genreSeparator.ifBlank { ";" })
                     .map { it.trim() }
                     .filter { isMeaningfulGenreTag(it) }
                     .distinct()
