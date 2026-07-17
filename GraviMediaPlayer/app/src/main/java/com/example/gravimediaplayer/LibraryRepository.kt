@@ -63,7 +63,7 @@ class LibraryRepository(private val context: Context) {
             .mapNotNull { audioFile ->
                 audioItemsByUri[audioFile.uriString]?.let { item ->
                     BrowserEntry(
-                        name = if (item.folderPath.isBlank()) item.title else "${item.title} — ${item.folderPath}",
+                        name = if (item.folderPath.isBlank()) item.displayTitle else "${item.displayTitle} — ${item.folderPath}",
                         uriString = item.uriString,
                         isDirectory = false,
                         audioItem = item,
@@ -158,6 +158,8 @@ class LibraryRepository(private val context: Context) {
                         audioFile.uriString,
                         audioFile.lastModifiedMs,
                         audioFile.sizeBytes,
+                        null,
+                        null,
                         null,
                         null,
                         null,
@@ -260,6 +262,9 @@ class LibraryRepository(private val context: Context) {
             metadataCacheFile?.mimeType,
             metadataCacheFile?.bitrate,
             metadataCacheFile?.durationMs,
+            metadataCacheFile?.artist,
+            metadataCacheFile?.releaseDate,
+            lastModifiedMs,
         )
     }
 
@@ -298,7 +303,7 @@ class LibraryRepository(private val context: Context) {
         }.plus(
             childFiles.map { item ->
                 BrowserEntry(
-                    name = item.title,
+                    name = item.displayTitle,
                     uriString = item.uriString,
                     isDirectory = false,
                     audioItem = item,
@@ -538,6 +543,8 @@ class LibraryRepository(private val context: Context) {
                     file.optString("mimeType").takeIf { it.isNotBlank() },
                     file.optInt("bitrate").takeIf { it > 0 },
                     file.optLong("durationMs").takeIf { it > 0 },
+                    file.optString("artist").takeIf { it.isNotBlank() },
+                    file.optString("releaseDate").takeIf { it.isNotBlank() },
                 ).takeIf { it.uriString.isNotBlank() }
             }
         }.getOrDefault(emptyList()).associateBy { it.uriString }.toMutableMap()
@@ -556,6 +563,8 @@ class LibraryRepository(private val context: Context) {
                     .put("mimeType", file.mimeType)
                     .put("bitrate", file.bitrate)
                     .put("durationMs", file.durationMs)
+                    .put("artist", file.artist)
+                    .put("releaseDate", file.releaseDate)
             )
         }
         val json = JSONObject()
@@ -583,6 +592,9 @@ class LibraryRepository(private val context: Context) {
                         ?.toIntOrNull(),
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         ?.toLongOrNull(),
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                        ?.takeIf { it.isNotBlank() },
+                    readReleaseDate(retriever),
                 )
             }.getOrNull()
         } finally {
@@ -605,6 +617,13 @@ class LibraryRepository(private val context: Context) {
         } finally {
             retriever.release()
         }
+    }
+
+    private fun readReleaseDate(retriever: MediaMetadataRetriever): String? {
+        return retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)
+            ?.takeIf { it.isNotBlank() }
+            ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)
+                ?.takeIf { it.isNotBlank() }
     }
 
     private fun isMeaningfulGenreTag(tag: String): Boolean {
@@ -741,6 +760,8 @@ private data class AudioMetadataCacheFile(
     val mimeType: String?,
     val bitrate: Int?,
     val durationMs: Long?,
+    val artist: String?,
+    val releaseDate: String?,
 ) {
     fun matches(audioFile: AudioFileSnapshot): Boolean {
         return uriString == audioFile.uriString &&

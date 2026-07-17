@@ -11,9 +11,15 @@ data class AudioItem(
     val mimeType: String? = null,
     val bitrate: Int? = null,
     val durationMs: Long? = null,
+    val artist: String? = null,
+    val releaseDate: String? = null,
+    val lastModifiedMs: Long = 0,
 ) {
     val uri: Uri
         get() = Uri.parse(uriString)
+
+    val displayTitle: String
+        get() = title.substringBeforeLast('.', title)
 }
 
 data class BrowserEntry(
@@ -74,6 +80,17 @@ enum class LoopMode(
     OFF("No repeat"),
     SONG("Repeat song"),
     QUEUE("Repeat queue"),
+}
+
+enum class BrowserSortMode(
+    val label: String,
+) {
+    FILENAME("Name"),
+    ARTIST("Artist"),
+    TITLE("Title"),
+    DURATION("Duration"),
+    RELEASE_DATE("Release date"),
+    ADDITION_DATE("Addition date"),
 }
 
 fun LoopMode.next(): LoopMode {

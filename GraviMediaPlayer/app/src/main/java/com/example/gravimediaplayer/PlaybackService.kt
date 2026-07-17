@@ -401,7 +401,7 @@ class PlaybackService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(snapshot.currentItem?.title ?: "Gravi Media Player")
+            .setContentTitle(snapshot.currentItem?.displayTitle ?: "Gravi Media Player")
             .setContentText(snapshot.currentItem?.folderPath ?: "Ready")
             .setContentIntent(openIntent)
             .setLargeIcon(artworkBitmap)
@@ -437,7 +437,7 @@ class PlaybackService : Service() {
         val metadataBuilder = MediaMetadataCompat.Builder()
             .putString(
                 MediaMetadataCompat.METADATA_KEY_TITLE,
-                currentItem?.title ?: "Gravi Media Player"
+                currentItem?.displayTitle ?: "Gravi Media Player"
             )
             .putString(
                 MediaMetadataCompat.METADATA_KEY_ALBUM,

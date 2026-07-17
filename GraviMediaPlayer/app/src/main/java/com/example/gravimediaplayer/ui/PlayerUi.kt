@@ -80,7 +80,7 @@ fun MiniPlayer(
         ) {
             Icon(Icons.Filled.MusicNote, contentDescription = null)
             Column(modifier = Modifier.weight(1f)) {
-                Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     snapshot.queueTitle ?: item.folderPath.ifBlank { "Root music folder" },
                     style = MaterialTheme.typography.bodySmall,
@@ -140,7 +140,7 @@ fun PlayScreen(
         }
         ArtworkCard(item?.artworkUriString)
         Text(
-            text = item?.title ?: "Nothing playing",
+            text = item?.displayTitle ?: "Nothing playing",
             style = MaterialTheme.typography.titleLarge,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -357,7 +357,7 @@ private fun QueueList(
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = if (isCurrentItem) "▶ ${queueItem.title}" else queueItem.title,
+                            text = if (isCurrentItem) "▶ ${queueItem.displayTitle}" else queueItem.displayTitle,
                             fontWeight = if (isCurrentItem) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

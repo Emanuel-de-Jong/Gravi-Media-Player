@@ -39,6 +39,7 @@ import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import com.example.gravimediaplayer.AudioItem
 import com.example.gravimediaplayer.BrowserEntry
+import com.example.gravimediaplayer.BrowserSortMode
 import com.example.gravimediaplayer.GraviQueuePicker
 import com.example.gravimediaplayer.LibraryRepository
 import com.example.gravimediaplayer.PendingPlaybackRequest
@@ -66,6 +67,9 @@ fun GraviMediaPlayerApp() {
     var folderStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var folderSearchQuery by rememberSaveable { mutableStateOf("") }
     var genreSearchQuery by rememberSaveable { mutableStateOf("") }
+    var browserSortMode by rememberSaveable { mutableStateOf(BrowserSortMode.FILENAME) }
+    var browserSortAscending by rememberSaveable { mutableStateOf(true) }
+    var genreSortAscending by rememberSaveable { mutableStateOf(true) }
     var browserEntries by remember { mutableStateOf(emptyList<BrowserEntry>()) }
     var tagGroups by remember { mutableStateOf(emptyList<TagGroup>()) }
     var isGeneratingCache by remember { mutableStateOf(preferences.rootUriString != null) }
@@ -279,25 +283,42 @@ fun GraviMediaPlayerApp() {
             } else {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.weight(1f)) {
+                        val sortedBrowserEntries = sortBrowserEntries(
+                            browserEntries,
+                            browserSortMode,
+                            browserSortAscending,
+                        )
                         val filteredTagGroups = tagGroups.filter {
                             genreSearchQuery.isBlank() || it.name.contains(
                                 genreSearchQuery,
                                 ignoreCase = true
                             )
+                        }.let { groups ->
+                            if (genreSortAscending) {
+                                groups.sortedBy { it.name.lowercase() }
+                            } else {
+                                groups.sortedByDescending { it.name.lowercase() }
+                            }
                         }
                         when (currentDestination) {
                             AppDestinations.FOLDERS -> FoldersScreen(
                                 rootUriString = rootUriString,
                                 folderStack = folderStack,
-                                entries = browserEntries,
-                                currentTrackCount = browserEntries.sumOf {
+                                entries = sortedBrowserEntries,
+                                currentTrackCount = sortedBrowserEntries.sumOf {
                                     it.trackCount ?: if (it.audioItem != null) 1 else 0
                                 },
                                 searchQuery = folderSearchQuery,
+                                sortMode = browserSortMode,
+                                sortAscending = browserSortAscending,
                                 showThumbnails = showBrowserThumbnails,
                                 isFolderActionRunning = isFolderActionRunning,
                                 onChooseFolder = { folderPicker.launch(null) },
                                 onSearchQueryChanged = { folderSearchQuery = it },
+                                onSortModeChanged = { browserSortMode = it },
+                                onToggleSortDirection = {
+                                    browserSortAscending = !browserSortAscending
+                                },
                                 onOpenFolder = {
                                     folderStack =
                                         it.uriString.split('/').filter { part -> part.isNotBlank() }
@@ -442,7 +463,7 @@ fun GraviMediaPlayerApp() {
                                         isFolderActionRunning = true
                                         try {
                                             val queue = if (folderSearchQuery.isBlank()) {
-                                                browserEntries.mapNotNull { it.audioItem }
+                                                sortedBrowserEntries.mapNotNull { it.audioItem }
                                             } else {
                                                 withContext(Dispatchers.IO) {
                                                     libraryRepository.loadRecursiveAudioItems(
@@ -476,8 +497,12 @@ fun GraviMediaPlayerApp() {
                                 rootUriString = rootUriString,
                                 tagGroups = filteredTagGroups,
                                 searchQuery = genreSearchQuery,
+                                sortAscending = genreSortAscending,
                                 onChooseFolder = { folderPicker.launch(null) },
                                 onSearchQueryChanged = { genreSearchQuery = it },
+                                onToggleSortDirection = {
+                                    genreSortAscending = !genreSortAscending
+                                },
                                 onPlayTag = { tagGroup ->
                                     val startIndex =
                                         if (savedPlayOrderMode == PlayOrderMode.SHUFFLE) Random.nextInt(
@@ -550,6 +575,41 @@ fun GraviMediaPlayerApp() {
                 }
             }
         }
+    }
+}
+
+private fun sortBrowserEntries(
+    entries: List<BrowserEntry>,
+    sortMode: BrowserSortMode,
+    sortAscending: Boolean,
+): List<BrowserEntry> {
+    val folders = entries.filter { it.isDirectory }
+    val files = entries.filter { !it.isDirectory }
+    return sortBrowserEntryGroup(folders, sortMode, sortAscending)
+        .plus(sortBrowserEntryGroup(files, sortMode, sortAscending))
+}
+
+private fun sortBrowserEntryGroup(
+    entries: List<BrowserEntry>,
+    sortMode: BrowserSortMode,
+    sortAscending: Boolean,
+): List<BrowserEntry> {
+    val comparator = compareBy<BrowserEntry> { browserSortKey(it, sortMode) }
+        .thenBy { it.name.lowercase() }
+    return if (sortAscending) entries.sortedWith(comparator) else entries.sortedWith(comparator.reversed())
+}
+
+private fun browserSortKey(entry: BrowserEntry, sortMode: BrowserSortMode): Comparable<*> {
+    val item = entry.audioItem
+    return when (sortMode) {
+        BrowserSortMode.FILENAME -> item?.displayTitle?.lowercase() ?: entry.name.lowercase()
+        BrowserSortMode.ARTIST -> item?.artist?.lowercase() ?: item?.displayTitle?.lowercase()
+        ?: entry.name.lowercase()
+
+        BrowserSortMode.TITLE -> item?.displayTitle?.lowercase() ?: entry.name.lowercase()
+        BrowserSortMode.DURATION -> item?.durationMs ?: 0L
+        BrowserSortMode.RELEASE_DATE -> item?.releaseDate.orEmpty().lowercase()
+        BrowserSortMode.ADDITION_DATE -> item?.lastModifiedMs ?: 0L
     }
 }
 

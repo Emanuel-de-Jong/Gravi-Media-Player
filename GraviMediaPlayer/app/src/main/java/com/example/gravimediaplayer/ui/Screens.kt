@@ -20,6 +20,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MusicNote
@@ -27,6 +30,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +39,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
@@ -44,6 +53,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.gravimediaplayer.BrowserEntry
+import com.example.gravimediaplayer.BrowserSortMode
 import com.example.gravimediaplayer.GraviPickerSettings
 import com.example.gravimediaplayer.LibraryRepository
 import com.example.gravimediaplayer.TagGroup
@@ -72,10 +82,14 @@ fun FoldersScreen(
     entries: List<BrowserEntry>,
     currentTrackCount: Int,
     searchQuery: String,
+    sortMode: BrowserSortMode,
+    sortAscending: Boolean,
     showThumbnails: Boolean,
     isFolderActionRunning: Boolean,
     onChooseFolder: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
+    onSortModeChanged: (BrowserSortMode) -> Unit,
+    onToggleSortDirection: () -> Unit,
     onOpenFolder: (BrowserEntry) -> Unit,
     onBack: () -> Unit,
     onPlayFolder: () -> Unit,
@@ -105,13 +119,20 @@ fun FoldersScreen(
             text = formatTrackCount(currentTrackCount),
             style = MaterialTheme.typography.bodySmall,
         )
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChanged,
-            label = { Text("Search folders and files") },
-            singleLine = true,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SearchTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChanged,
+                label = "Search...",
+                modifier = Modifier.weight(1f),
+            )
+            BrowserSortModeSelector(sortMode, onSortModeChanged)
+            SortDirectionButton(sortAscending, onToggleSortDirection)
+        }
         val hasPlayableFolderContent = entries.isNotEmpty()
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -190,12 +211,72 @@ private fun CompactFolderButton(label: String, enabled: Boolean, onClick: () -> 
 }
 
 @Composable
+private fun SearchTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        trailingIcon = {
+            if (value.isNotEmpty()) {
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                }
+            }
+        },
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun BrowserSortModeSelector(
+    sortMode: BrowserSortMode,
+    onSortModeChanged: (BrowserSortMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        Button(onClick = { expanded = true }) {
+            Text(sortMode.label)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            BrowserSortMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode.label) },
+                    onClick = {
+                        expanded = false
+                        onSortModeChanged(mode)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SortDirectionButton(sortAscending: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            if (sortAscending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+            contentDescription = "Direction"
+        )
+    }
+}
+
+@Composable
 fun GenresScreen(
     rootUriString: String?,
     tagGroups: List<TagGroup>,
     searchQuery: String,
+    sortAscending: Boolean,
     onChooseFolder: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
+    onToggleSortDirection: () -> Unit,
     onPlayTag: (TagGroup) -> Unit,
 ) {
     Column(
@@ -215,13 +296,19 @@ fun GenresScreen(
             return@Column
         }
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChanged,
-            label = { Text("Search genres") },
-            singleLine = true,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SearchTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChanged,
+                label = "Search...",
+                modifier = Modifier.weight(1f),
+            )
+            SortDirectionButton(sortAscending, onToggleSortDirection)
+        }
 
         if (tagGroups.isEmpty()) {
             Text("No genre metadata was found.")
