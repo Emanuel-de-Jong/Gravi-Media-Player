@@ -61,7 +61,6 @@ fun LibraryLoadingScreen() {
         ) {
             CircularProgressIndicator()
             Text("Scanning music library…", style = MaterialTheme.typography.titleMedium)
-            Text("Reading genre metadata. This can take a moment for large libraries.")
         }
     }
 }
@@ -195,7 +194,6 @@ fun GenresScreen(
     rootUriString: String?,
     tagGroups: List<TagGroup>,
     searchQuery: String,
-    isLibraryScanning: Boolean,
     onChooseFolder: () -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onPlayTag: (TagGroup) -> Unit,
@@ -225,20 +223,8 @@ fun GenresScreen(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        if (isLibraryScanning) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator()
-                Text("Scanning music library…")
-            }
-            Text("Reading genre metadata. You can keep using the other tabs while this finishes.")
-            if (tagGroups.isEmpty()) return@Column
-        }
-
         if (tagGroups.isEmpty()) {
-            Text("No genre metadata was found. Genre lists are rebuilt from audio metadata every app start so file changes are picked up after restarting.")
+            Text("No genre metadata was found.")
             return@Column
         }
 
@@ -284,6 +270,7 @@ fun SettingsScreen(
     graviPickerSettings: GraviPickerSettings,
     onChooseFolder: () -> Unit,
     onGenreSeparatorChanged: (String) -> Unit,
+    onApplyGenreSeparator: (String) -> Unit,
     onShowBrowserThumbnailsChanged: (Boolean) -> Unit,
     onGraviPickerSettingsChanged: (GraviPickerSettings) -> Unit,
     onResetSettings: () -> Unit,
@@ -304,13 +291,22 @@ fun SettingsScreen(
         Button(onClick = onChooseFolder) {
             Text(if (rootUriString == null) "Choose music folder" else "Change music folder")
         }
-        OutlinedTextField(
-            value = genreSeparator,
-            onValueChange = onGenreSeparatorChanged,
-            label = { Text("Genre separator") },
-            singleLine = true,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = genreSeparator,
+                onValueChange = onGenreSeparatorChanged,
+                label = { Text("Genre separator") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            Button(onClick = { onApplyGenreSeparator(genreSeparator) }) {
+                Text("Apply")
+            }
+        }
         SwitchSettingRow(
             label = "Show browser thumbnails",
             checked = showBrowserThumbnails,

@@ -29,6 +29,51 @@ class LibraryRepository(private val context: Context) {
         )
     }
 
+    fun searchBrowserEntries(rootUriString: String, query: String): List<BrowserEntry> {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isBlank()) return emptyList()
+
+        val audioFiles = loadAudioFiles(rootUriString)
+        val audioItemsByUri =
+            buildAudioItems(rootUriString, audioFiles).associateBy { it.uriString }
+        val folderTrackCounts = mutableMapOf<String, Int>()
+        audioFiles.forEach { audioFile ->
+            val folderParts = audioFile.folderPath.split('/').filter { it.isNotBlank() }
+            folderParts.indices.forEach { index ->
+                val folderPath = folderParts.take(index + 1).joinToString("/")
+                folderTrackCounts[folderPath] = folderTrackCounts.getOrDefault(folderPath, 0) + 1
+            }
+        }
+
+        val folderEntries = folderTrackCounts.keys
+            .filter { it.contains(normalizedQuery, ignoreCase = true) }
+            .map { folderPath ->
+                BrowserEntry(
+                    name = folderPath,
+                    uriString = folderPath,
+                    isDirectory = true,
+                    trackCount = folderTrackCounts[folderPath] ?: 0,
+                )
+            }
+        val fileEntries = audioFiles
+            .filter {
+                it.title.contains(normalizedQuery, ignoreCase = true) ||
+                        it.folderPath.contains(normalizedQuery, ignoreCase = true)
+            }
+            .mapNotNull { audioFile ->
+                audioItemsByUri[audioFile.uriString]?.let { item ->
+                    BrowserEntry(
+                        name = if (item.folderPath.isBlank()) item.title else "${item.title} — ${item.folderPath}",
+                        uriString = item.uriString,
+                        isDirectory = false,
+                        audioItem = item,
+                    )
+                }
+            }
+        return folderEntries.plus(fileEntries)
+            .sortedWith(compareBy<BrowserEntry> { !it.isDirectory }.thenBy { it.name.lowercase() })
+    }
+
     fun loadRecursiveAudioItems(
         rootUriString: String,
         folderStack: List<String>,
@@ -87,6 +132,74 @@ class LibraryRepository(private val context: Context) {
             audioFiles,
             genreSeparator,
             updatedFiles.associateBy { it.uriString })
+    }
+
+    fun hasCompleteCache(rootUriString: String, genreSeparator: String): Boolean {
+        val audioFiles = loadAudioFiles(rootUriString)
+        val metadataFilesByUri = loadAudioMetadataCache(rootUriString)
+        val genreFilesByUri =
+            loadGenreCache(rootUriString, genreSeparator).associateBy { it.uriString }
+        return audioFiles.all { audioFile ->
+            metadataFilesByUri[audioFile.uriString]?.matches(audioFile) == true &&
+                    genreFilesByUri[audioFile.uriString]?.matches(audioFile) == true
+        }
+    }
+
+    fun generateAllCaches(rootUriString: String, genreSeparator: String) {
+        val audioFiles = loadAudioFiles(rootUriString)
+        val metadataFilesByUri = loadAudioMetadataCache(rootUriString)
+        var metadataCacheChanged = false
+        audioFiles.forEach { audioFile ->
+            val cachedMetadata = metadataFilesByUri[audioFile.uriString]
+            if (cachedMetadata?.matches(audioFile) != true) {
+                val metadata = readAudioMetadata(Uri.parse(audioFile.uriString))
+                metadataFilesByUri[audioFile.uriString] = if (metadata == null) {
+                    AudioMetadataCacheFile(
+                        audioFile.uriString,
+                        audioFile.lastModifiedMs,
+                        audioFile.sizeBytes,
+                        null,
+                        null,
+                        null,
+                    )
+                } else {
+                    metadata.copy(
+                        uriString = audioFile.uriString,
+                        lastModifiedMs = audioFile.lastModifiedMs,
+                        sizeBytes = audioFile.sizeBytes,
+                    )
+                }
+                metadataCacheChanged = true
+            }
+        }
+        if (metadataCacheChanged) saveAudioMetadataCache(
+            rootUriString,
+            metadataFilesByUri.values.toList()
+        )
+
+        val genreFilesByUri =
+            loadGenreCache(rootUriString, genreSeparator).associateBy { it.uriString }
+        val updatedGenreFiles = audioFiles.map { audioFile ->
+            val cachedFile = genreFilesByUri[audioFile.uriString]
+            if (cachedFile != null && cachedFile.matches(audioFile)) {
+                cachedFile.copy(
+                    title = audioFile.title,
+                    folderPath = audioFile.folderPath,
+                )
+            } else {
+                GenreCacheFile(
+                    audioFile.uriString,
+                    audioFile.title,
+                    audioFile.folderPath,
+                    audioFile.lastModifiedMs,
+                    audioFile.sizeBytes,
+                    readGenreTags(Uri.parse(audioFile.uriString), genreSeparator),
+                    audioFile.artworkUriString,
+                )
+            }
+        }
+        saveGenreCache(rootUriString, genreSeparator, updatedGenreFiles)
+        recursiveAudioItemsCache.clear()
     }
 
     fun clearSessionCache() {

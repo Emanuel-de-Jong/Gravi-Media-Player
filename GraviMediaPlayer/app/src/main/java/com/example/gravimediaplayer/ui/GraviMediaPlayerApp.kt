@@ -68,18 +68,20 @@ fun GraviMediaPlayerApp() {
     var genreSearchQuery by rememberSaveable { mutableStateOf("") }
     var browserEntries by remember { mutableStateOf(emptyList<BrowserEntry>()) }
     var tagGroups by remember { mutableStateOf(emptyList<TagGroup>()) }
-    var isLibraryScanning by remember { mutableStateOf(false) }
+    var isGeneratingCache by remember { mutableStateOf(preferences.rootUriString != null) }
+    var libraryCacheVersion by remember { mutableStateOf(0) }
+    var cacheGenerationRequest by remember { mutableStateOf(0) }
     var pendingPlaybackRequest by remember { mutableStateOf<PendingPlaybackRequest?>(null) }
     var playbackService by remember { mutableStateOf<PlaybackService?>(null) }
     var playbackSnapshot by remember { mutableStateOf(PlaybackSnapshot()) }
     var savedPlayOrderMode by rememberSaveable { mutableStateOf(preferences.playOrderMode) }
     var savedLoopMode by rememberSaveable { mutableStateOf(preferences.loopMode) }
     var genreSeparator by rememberSaveable { mutableStateOf(preferences.genreSeparator) }
+    var appliedGenreSeparator by rememberSaveable { mutableStateOf(preferences.genreSeparator) }
     var showBrowserThumbnails by rememberSaveable { mutableStateOf(preferences.showBrowserThumbnails) }
     var graviPickerSettings by remember { mutableStateOf(preferences.graviPickerSettings) }
     var pendingPlaylistExport by remember { mutableStateOf<List<AudioItem>?>(null) }
     var isFolderActionRunning by remember { mutableStateOf(false) }
-    var scannedGenreRootUriString by remember { mutableStateOf<String?>(null) }
     var mediaLibraryPermissionVersion by remember { mutableStateOf(0) }
 
     val folderPicker =
@@ -94,9 +96,10 @@ fun GraviMediaPlayerApp() {
                 folderStack = emptyList()
                 folderSearchQuery = ""
                 genreSearchQuery = ""
+                browserEntries = emptyList()
                 tagGroups = emptyList()
-                scannedGenreRootUriString = null
                 libraryRepository.clearSessionCache()
+                cacheGenerationRequest++
             }
         }
     val notificationPermissionLauncher =
@@ -149,37 +152,48 @@ fun GraviMediaPlayerApp() {
         }
     }
 
-    LaunchedEffect(rootUriString, folderStack, mediaLibraryPermissionVersion) {
+    LaunchedEffect(
+        rootUriString,
+        mediaLibraryPermissionVersion,
+        appliedGenreSeparator,
+        cacheGenerationRequest
+    ) {
         val rootUri = rootUriString
-        browserEntries = if (rootUri == null) emptyList() else withContext(Dispatchers.IO) {
-            libraryRepository.loadBrowserEntries(
-                rootUri,
-                folderStack
-            )
+        if (rootUri == null) {
+            isGeneratingCache = false
+            browserEntries = emptyList()
+            tagGroups = emptyList()
+        } else {
+            isGeneratingCache = true
+            tagGroups = withContext(Dispatchers.IO) {
+                if (!libraryRepository.hasCompleteCache(rootUri, appliedGenreSeparator)) {
+                    libraryRepository.generateAllCaches(rootUri, appliedGenreSeparator)
+                }
+                libraryRepository.buildTagGroups(
+                    libraryRepository.loadCachedGenreAudioItems(rootUri, appliedGenreSeparator)
+                )
+            }
+            libraryCacheVersion++
+            isGeneratingCache = false
         }
     }
 
     LaunchedEffect(
         rootUriString,
-        currentDestination,
-        mediaLibraryPermissionVersion,
-        genreSeparator
+        folderStack,
+        folderSearchQuery,
+        libraryCacheVersion,
+        isGeneratingCache
     ) {
         val rootUri = rootUriString
-        if (rootUri == null) {
-            isLibraryScanning = false
-            tagGroups = emptyList()
-            scannedGenreRootUriString = null
-        } else if (currentDestination == AppDestinations.GENRES && scannedGenreRootUriString != "$rootUri|$genreSeparator") {
-            isLibraryScanning = true
-            tagGroups = withContext(Dispatchers.IO) {
-                libraryRepository.buildTagGroups(
-                    libraryRepository.loadCachedGenreAudioItems(rootUri, genreSeparator)
-                )
+        browserEntries =
+            if (rootUri == null || isGeneratingCache) emptyList() else withContext(Dispatchers.IO) {
+                if (folderSearchQuery.isBlank()) {
+                    libraryRepository.loadBrowserEntries(rootUri, folderStack)
+                } else {
+                    libraryRepository.searchBrowserEntries(rootUri, folderSearchQuery)
+                }
             }
-            scannedGenreRootUriString = "$rootUri|$genreSeparator"
-            isLibraryScanning = false
-        }
     }
 
     LaunchedEffect(rootUriString) {
@@ -202,31 +216,33 @@ fun GraviMediaPlayerApp() {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(72.dp)
-                    .background(MaterialTheme.colorScheme.surface)
-            ) {
-                NavigationBar(
-                    modifier = Modifier.fillMaxSize(),
-                    windowInsets = WindowInsets(0.dp),
+            if (!isGeneratingCache) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .background(MaterialTheme.colorScheme.surface)
                 ) {
-                    AppDestinations.entries.forEach { destination ->
-                        NavigationBarItem(
-                            icon = {
-                                Icon(
-                                    destination.icon,
-                                    contentDescription = destination.label
-                                )
-                            },
-                            selected = destination == currentDestination,
-                            onClick = {
-                                isPlayerExpanded = false
-                                currentDestination = destination
-                            },
-                            alwaysShowLabel = false,
-                        )
+                    NavigationBar(
+                        modifier = Modifier.fillMaxSize(),
+                        windowInsets = WindowInsets(0.dp),
+                    ) {
+                        AppDestinations.entries.forEach { destination ->
+                            NavigationBarItem(
+                                icon = {
+                                    Icon(
+                                        destination.icon,
+                                        contentDescription = destination.label
+                                    )
+                                },
+                                selected = destination == currentDestination,
+                                onClick = {
+                                    isPlayerExpanded = false
+                                    currentDestination = destination
+                                },
+                                alwaysShowLabel = false,
+                            )
+                        }
                     }
                 }
             }
@@ -237,7 +253,9 @@ fun GraviMediaPlayerApp() {
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            if (isPlayerExpanded) {
+            if (isGeneratingCache) {
+                LibraryLoadingScreen()
+            } else if (isPlayerExpanded) {
                 PlayScreen(
                     snapshot = playbackSnapshot,
                     expanded = true,
@@ -261,12 +279,6 @@ fun GraviMediaPlayerApp() {
             } else {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.weight(1f)) {
-                        val filteredBrowserEntries = browserEntries.filter {
-                            folderSearchQuery.isBlank() || it.name.contains(
-                                folderSearchQuery,
-                                ignoreCase = true
-                            )
-                        }
                         val filteredTagGroups = tagGroups.filter {
                             genreSearchQuery.isBlank() || it.name.contains(
                                 genreSearchQuery,
@@ -277,8 +289,8 @@ fun GraviMediaPlayerApp() {
                             AppDestinations.FOLDERS -> FoldersScreen(
                                 rootUriString = rootUriString,
                                 folderStack = folderStack,
-                                entries = filteredBrowserEntries,
-                                currentTrackCount = filteredBrowserEntries.sumOf {
+                                entries = browserEntries,
+                                currentTrackCount = browserEntries.sumOf {
                                     it.trackCount ?: if (it.audioItem != null) 1 else 0
                                 },
                                 searchQuery = folderSearchQuery,
@@ -286,7 +298,11 @@ fun GraviMediaPlayerApp() {
                                 isFolderActionRunning = isFolderActionRunning,
                                 onChooseFolder = { folderPicker.launch(null) },
                                 onSearchQueryChanged = { folderSearchQuery = it },
-                                onOpenFolder = { folderStack = folderStack + it.name },
+                                onOpenFolder = {
+                                    folderStack =
+                                        it.uriString.split('/').filter { part -> part.isNotBlank() }
+                                    folderSearchQuery = ""
+                                },
                                 onBack = { folderStack = folderStack.dropLast(1) },
                                 onPlayFolder = {
                                     val rootUri = rootUriString ?: return@FoldersScreen
@@ -419,19 +435,40 @@ fun GraviMediaPlayerApp() {
                                 },
                                 onPlayFile = { entry ->
                                     val selectedItem = entry.audioItem ?: return@FoldersScreen
-                                    val queue = browserEntries.mapNotNull { it.audioItem }
-                                    val startIndex =
-                                        queue.indexOfFirst { it.uriString == selectedItem.uriString }
-                                            .coerceAtLeast(0)
-                                    val queueTitle = folderQueueTitle(folderStack)
-                                    pendingPlaybackRequest = requestPlayback(
-                                        context,
-                                        playbackService,
-                                        queue,
-                                        startIndex,
-                                        queueTitle,
-                                        savedPlayOrderMode,
-                                    )
+                                    val selectedRootUri = rootUriString ?: return@FoldersScreen
+                                    val selectedFolderStack = selectedItem.folderPath.split('/')
+                                        .filter { it.isNotBlank() }
+                                    coroutineScope.launch {
+                                        isFolderActionRunning = true
+                                        try {
+                                            val queue = if (folderSearchQuery.isBlank()) {
+                                                browserEntries.mapNotNull { it.audioItem }
+                                            } else {
+                                                withContext(Dispatchers.IO) {
+                                                    libraryRepository.loadRecursiveAudioItems(
+                                                        selectedRootUri,
+                                                        selectedFolderStack,
+                                                    )
+                                                }
+                                            }
+                                            val startIndex =
+                                                queue.indexOfFirst { it.uriString == selectedItem.uriString }
+                                                    .coerceAtLeast(0)
+                                            val queueTitle = folderQueueTitle(
+                                                if (folderSearchQuery.isBlank()) folderStack else selectedFolderStack
+                                            )
+                                            pendingPlaybackRequest = requestPlayback(
+                                                context,
+                                                playbackService,
+                                                queue,
+                                                startIndex,
+                                                queueTitle,
+                                                savedPlayOrderMode,
+                                            )
+                                        } finally {
+                                            isFolderActionRunning = false
+                                        }
+                                    }
                                 },
                             )
 
@@ -439,7 +476,6 @@ fun GraviMediaPlayerApp() {
                                 rootUriString = rootUriString,
                                 tagGroups = filteredTagGroups,
                                 searchQuery = genreSearchQuery,
-                                isLibraryScanning = isLibraryScanning,
                                 onChooseFolder = { folderPicker.launch(null) },
                                 onSearchQueryChanged = { genreSearchQuery = it },
                                 onPlayTag = { tagGroup ->
@@ -467,9 +503,13 @@ fun GraviMediaPlayerApp() {
                                 onChooseFolder = { folderPicker.launch(null) },
                                 onGenreSeparatorChanged = {
                                     genreSeparator = it
+                                },
+                                onApplyGenreSeparator = {
+                                    genreSeparator = it
+                                    appliedGenreSeparator = it.ifBlank { "|" }
                                     preferences.genreSeparator = it
                                     tagGroups = emptyList()
-                                    scannedGenreRootUriString = null
+                                    cacheGenerationRequest++
                                 },
                                 onShowBrowserThumbnailsChanged = {
                                     showBrowserThumbnails = it
@@ -484,19 +524,19 @@ fun GraviMediaPlayerApp() {
                                     savedPlayOrderMode = preferences.playOrderMode
                                     savedLoopMode = preferences.loopMode
                                     genreSeparator = preferences.genreSeparator
+                                    appliedGenreSeparator = preferences.genreSeparator
                                     showBrowserThumbnails = preferences.showBrowserThumbnails
                                     graviPickerSettings = preferences.graviPickerSettings
                                     playbackService?.setPlayOrderMode(savedPlayOrderMode)
                                     playbackService?.setLoopMode(savedLoopMode)
                                     tagGroups = emptyList()
-                                    scannedGenreRootUriString = null
+                                    cacheGenerationRequest++
                                 },
                                 onClearCaches = {
                                     libraryRepository.clearAllCaches(rootUriString)
                                     browserEntries = emptyList()
                                     tagGroups = emptyList()
-                                    scannedGenreRootUriString = null
-                                    mediaLibraryPermissionVersion++
+                                    cacheGenerationRequest++
                                 },
                             )
                         }
