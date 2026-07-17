@@ -1,8 +1,10 @@
 # Gravi Media Player
+Android music player that uses my Gravi Media Picker on my KBOTs Mixes music playlists.
 
+95% made with LLMs to be fully honest...
 
-**Active Development:** 2026-07-16 - 2019-07-17<br>
-**Last Change:** 2019-07-16<br>
+**Active Development:** 2026-07-16 - 2026-07-17<br>
+**Last Change:** 2026-07-17<br>
 
 | | |
 | :---: | :---: |
