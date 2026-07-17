@@ -11,12 +11,16 @@ import android.os.Build
 import android.os.IBinder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -60,6 +64,8 @@ fun GraviMediaPlayerApp() {
     var isPlayerExpanded by rememberSaveable { mutableStateOf(false) }
     var rootUriString by rememberSaveable { mutableStateOf(preferences.rootUriString) }
     var folderStack by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var folderSearchQuery by rememberSaveable { mutableStateOf("") }
+    var genreSearchQuery by rememberSaveable { mutableStateOf("") }
     var browserEntries by remember { mutableStateOf(emptyList<BrowserEntry>()) }
     var tagGroups by remember { mutableStateOf(emptyList<TagGroup>()) }
     var isLibraryScanning by remember { mutableStateOf(false) }
@@ -69,6 +75,7 @@ fun GraviMediaPlayerApp() {
     var savedPlayOrderMode by rememberSaveable { mutableStateOf(preferences.playOrderMode) }
     var savedLoopMode by rememberSaveable { mutableStateOf(preferences.loopMode) }
     var genreSeparator by rememberSaveable { mutableStateOf(preferences.genreSeparator) }
+    var showBrowserThumbnails by rememberSaveable { mutableStateOf(preferences.showBrowserThumbnails) }
     var graviPickerSettings by remember { mutableStateOf(preferences.graviPickerSettings) }
     var pendingPlaylistExport by remember { mutableStateOf<List<AudioItem>?>(null) }
     var isFolderActionRunning by remember { mutableStateOf(false) }
@@ -85,6 +92,8 @@ fun GraviMediaPlayerApp() {
                 rootUriString = uri.toString()
                 preferences.rootUriString = rootUriString
                 folderStack = emptyList()
+                folderSearchQuery = ""
+                genreSearchQuery = ""
                 tagGroups = emptyList()
                 scannedGenreRootUriString = null
                 libraryRepository.clearSessionCache()
@@ -193,17 +202,32 @@ fun GraviMediaPlayerApp() {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar(modifier = Modifier.height(52.dp)) {
-                AppDestinations.entries.forEach { destination ->
-                    NavigationBarItem(
-                        icon = { Icon(destination.icon, contentDescription = destination.label) },
-                        selected = destination == currentDestination,
-                        onClick = {
-                            isPlayerExpanded = false
-                            currentDestination = destination
-                        },
-                        alwaysShowLabel = false,
-                    )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .background(MaterialTheme.colorScheme.surface)
+            ) {
+                NavigationBar(
+                    modifier = Modifier.fillMaxSize(),
+                    windowInsets = WindowInsets(0.dp),
+                ) {
+                    AppDestinations.entries.forEach { destination ->
+                        NavigationBarItem(
+                            icon = {
+                                Icon(
+                                    destination.icon,
+                                    contentDescription = destination.label
+                                )
+                            },
+                            selected = destination == currentDestination,
+                            onClick = {
+                                isPlayerExpanded = false
+                                currentDestination = destination
+                            },
+                            alwaysShowLabel = false,
+                        )
+                    }
                 }
             }
         },
@@ -237,16 +261,31 @@ fun GraviMediaPlayerApp() {
             } else {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.weight(1f)) {
+                        val filteredBrowserEntries = browserEntries.filter {
+                            folderSearchQuery.isBlank() || it.name.contains(
+                                folderSearchQuery,
+                                ignoreCase = true
+                            )
+                        }
+                        val filteredTagGroups = tagGroups.filter {
+                            genreSearchQuery.isBlank() || it.name.contains(
+                                genreSearchQuery,
+                                ignoreCase = true
+                            )
+                        }
                         when (currentDestination) {
                             AppDestinations.FOLDERS -> FoldersScreen(
                                 rootUriString = rootUriString,
                                 folderStack = folderStack,
-                                entries = browserEntries,
-                                currentTrackCount = browserEntries.sumOf {
+                                entries = filteredBrowserEntries,
+                                currentTrackCount = filteredBrowserEntries.sumOf {
                                     it.trackCount ?: if (it.audioItem != null) 1 else 0
                                 },
+                                searchQuery = folderSearchQuery,
+                                showThumbnails = showBrowserThumbnails,
                                 isFolderActionRunning = isFolderActionRunning,
                                 onChooseFolder = { folderPicker.launch(null) },
+                                onSearchQueryChanged = { folderSearchQuery = it },
                                 onOpenFolder = { folderStack = folderStack + it.name },
                                 onBack = { folderStack = folderStack.dropLast(1) },
                                 onPlayFolder = {
@@ -398,9 +437,11 @@ fun GraviMediaPlayerApp() {
 
                             AppDestinations.GENRES -> GenresScreen(
                                 rootUriString = rootUriString,
-                                tagGroups = tagGroups,
+                                tagGroups = filteredTagGroups,
+                                searchQuery = genreSearchQuery,
                                 isLibraryScanning = isLibraryScanning,
                                 onChooseFolder = { folderPicker.launch(null) },
+                                onSearchQueryChanged = { genreSearchQuery = it },
                                 onPlayTag = { tagGroup ->
                                     val startIndex =
                                         if (savedPlayOrderMode == PlayOrderMode.SHUFFLE) Random.nextInt(
@@ -421,6 +462,7 @@ fun GraviMediaPlayerApp() {
                             AppDestinations.SETTINGS -> SettingsScreen(
                                 rootUriString = rootUriString,
                                 genreSeparator = genreSeparator,
+                                showBrowserThumbnails = showBrowserThumbnails,
                                 graviPickerSettings = graviPickerSettings,
                                 onChooseFolder = { folderPicker.launch(null) },
                                 onGenreSeparatorChanged = {
@@ -429,9 +471,25 @@ fun GraviMediaPlayerApp() {
                                     tagGroups = emptyList()
                                     scannedGenreRootUriString = null
                                 },
+                                onShowBrowserThumbnailsChanged = {
+                                    showBrowserThumbnails = it
+                                    preferences.showBrowserThumbnails = it
+                                },
                                 onGraviPickerSettingsChanged = {
                                     graviPickerSettings = it
                                     preferences.graviPickerSettings = it
+                                },
+                                onResetSettings = {
+                                    preferences.resetSettingsExceptRootUri()
+                                    savedPlayOrderMode = preferences.playOrderMode
+                                    savedLoopMode = preferences.loopMode
+                                    genreSeparator = preferences.genreSeparator
+                                    showBrowserThumbnails = preferences.showBrowserThumbnails
+                                    graviPickerSettings = preferences.graviPickerSettings
+                                    playbackService?.setPlayOrderMode(savedPlayOrderMode)
+                                    playbackService?.setLoopMode(savedLoopMode)
+                                    tagGroups = emptyList()
+                                    scannedGenreRootUriString = null
                                 },
                             )
                         }

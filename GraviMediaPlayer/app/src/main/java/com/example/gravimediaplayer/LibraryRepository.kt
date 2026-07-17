@@ -47,7 +47,9 @@ class LibraryRepository(private val context: Context) {
 
     fun buildTagGroups(items: List<AudioItem>): List<TagGroup> {
         return items
-            .flatMap { item -> item.tags.map { tag -> tag to item } }
+            .flatMap { item ->
+                item.tags.filter { isMeaningfulGenreTag(it) }.map { tag -> tag to item }
+            }
             .groupBy({ it.first }, { it.second })
             .map { TagGroup(it.key, it.value.distinctBy { item -> item.uriString }) }
             .sortedBy { it.name.lowercase() }
@@ -323,7 +325,8 @@ class LibraryRepository(private val context: Context) {
                     file.optString("folderPath"),
                     file.optLong("lastModifiedMs"),
                     file.optLong("sizeBytes"),
-                    file.optJSONArray("tags").orEmptyStringList(),
+                    file.optJSONArray("tags").orEmptyStringList()
+                        .filter { isMeaningfulGenreTag(it) },
                     file.optString("artworkUriString").takeIf { it.isNotBlank() },
                 ).takeIf { it.uriString.isNotBlank() }
             }
@@ -369,13 +372,16 @@ class LibraryRepository(private val context: Context) {
                     .orEmpty()
                     .split(genreSeparator.ifBlank { "|" })
                     .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .filter { tag -> tag.any { !it.isDigit() && !it.isWhitespace() } }
+                    .filter { isMeaningfulGenreTag(it) }
                     .distinct()
             }.getOrDefault(emptyList())
         } finally {
             retriever.release()
         }
+    }
+
+    private fun isMeaningfulGenreTag(tag: String): Boolean {
+        return tag.isNotBlank() && tag.any { !it.isDigit() && !it.isWhitespace() }
     }
 
     private fun albumArtworkUriString(albumId: Long): String? {

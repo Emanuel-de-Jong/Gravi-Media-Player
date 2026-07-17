@@ -29,6 +29,12 @@ class PlayerPreferences(context: Context) {
             preferences.edit().putString(KEY_GENRE_SEPARATOR, value.ifBlank { "|" }).apply()
         }
 
+    var showBrowserThumbnails: Boolean
+        get() = preferences.getBoolean(KEY_SHOW_BROWSER_THUMBNAILS, false)
+        set(value) {
+            preferences.edit().putBoolean(KEY_SHOW_BROWSER_THUMBNAILS, value).apply()
+        }
+
     var graviPickerSettings: GraviPickerSettings
         get() = GraviPickerSettings(
             depth = preferences.getInt(KEY_GRAVI_DEPTH, 2),
@@ -36,7 +42,7 @@ class PlayerPreferences(context: Context) {
             childOdds = preferences.getBoolean(KEY_GRAVI_CHILD_ODDS, true),
             evenOddsMinFileCount = preferences.getInt(KEY_GRAVI_EVEN_ODDS_MIN_FILE_COUNT, 5),
             lessLikelyDivisor = preferences.getFloat(KEY_GRAVI_LESS_LIKELY_DIVISOR, 2f),
-            queueEntries = preferences.getInt(KEY_GRAVI_QUEUE_ENTRIES, 50),
+            queueEntries = preferences.getInt(KEY_GRAVI_QUEUE_ENTRIES, 100),
             edgeCaseFolderDepths = parseEdgeCaseFolderDepths(
                 preferences.getString(KEY_GRAVI_EDGE_CASE_FOLDER_DEPTHS, "").orEmpty()
             ),
@@ -63,6 +69,12 @@ class PlayerPreferences(context: Context) {
                 )
                 .apply()
         }
+
+    fun resetSettingsExceptRootUri() {
+        val rootUri = rootUriString
+        preferences.edit().clear().apply()
+        rootUriString = rootUri
+    }
 
     private inline fun <reified Mode> loadMode(
         key: String,
@@ -105,6 +117,7 @@ class PlayerPreferences(context: Context) {
         private const val KEY_PLAY_ORDER_MODE = "play_order_mode"
         private const val KEY_LOOP_MODE = "loop_mode"
         private const val KEY_GENRE_SEPARATOR = "genre_separator"
+        private const val KEY_SHOW_BROWSER_THUMBNAILS = "show_browser_thumbnails"
         private const val KEY_GRAVI_DEPTH = "gravi_depth"
         private const val KEY_GRAVI_PARENT_ODDS = "gravi_parent_odds"
         private const val KEY_GRAVI_CHILD_ODDS = "gravi_child_odds"

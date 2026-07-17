@@ -6,7 +6,7 @@ data class GraviPickerSettings(
     val childOdds: Boolean = true,
     val evenOddsMinFileCount: Int = 5,
     val lessLikelyDivisor: Float = 2f,
-    val queueEntries: Int = 50,
+    val queueEntries: Int = 100,
     val edgeCaseFolderDepths: Map<String, Int> = emptyMap(),
     val blacklistFolders: Set<String> = emptySet(),
 ) {

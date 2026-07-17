@@ -118,7 +118,7 @@ fun PlayScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(12.dp),
+            .padding(start = 12.dp, top = 12.dp, end = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -325,7 +325,10 @@ private fun QueueList(
         if (snapshot.queue.isEmpty()) {
             Text("Queue is empty. Start playback from a folder, file, or genre to populate it.")
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             items(snapshot.queue.size) { index ->
                 val queueItem = snapshot.queue[index]
                 val isCurrentItem = index == snapshot.currentIndex

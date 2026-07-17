@@ -1,5 +1,8 @@
 package com.example.gravimediaplayer.ui
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +36,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,8 +72,11 @@ fun FoldersScreen(
     folderStack: List<String>,
     entries: List<BrowserEntry>,
     currentTrackCount: Int,
+    searchQuery: String,
+    showThumbnails: Boolean,
     isFolderActionRunning: Boolean,
     onChooseFolder: () -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
     onOpenFolder: (BrowserEntry) -> Unit,
     onBack: () -> Unit,
     onPlayFolder: () -> Unit,
@@ -79,7 +88,7 @@ fun FoldersScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(12.dp),
+            .padding(start = 12.dp, top = 12.dp, end = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
@@ -96,6 +105,13 @@ fun FoldersScreen(
         Text(
             text = formatTrackCount(currentTrackCount),
             style = MaterialTheme.typography.bodySmall,
+        )
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChanged,
+            label = { Text("Search folders and files") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
         )
         val hasPlayableFolderContent = entries.isNotEmpty()
         Row(
@@ -143,10 +159,14 @@ fun FoldersScreen(
         if (entries.isEmpty()) {
             Text("No folders or supported audio files found here. Supported extensions: ${LibraryRepository.audioExtensions.joinToString()}.")
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             items(entries, key = { it.uriString }) { entry ->
                 BrowserEntryRow(
                     entry = entry,
+                    showThumbnails = showThumbnails,
                     onClick = {
                         if (entry.isDirectory) onOpenFolder(entry) else onPlayFile(entry)
                     },
@@ -174,14 +194,16 @@ private fun CompactFolderButton(label: String, enabled: Boolean, onClick: () -> 
 fun GenresScreen(
     rootUriString: String?,
     tagGroups: List<TagGroup>,
+    searchQuery: String,
     isLibraryScanning: Boolean,
     onChooseFolder: () -> Unit,
+    onSearchQueryChanged: (String) -> Unit,
     onPlayTag: (TagGroup) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
@@ -194,6 +216,14 @@ fun GenresScreen(
             Button(onClick = onChooseFolder) { Text("Choose music folder") }
             return@Column
         }
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChanged,
+            label = { Text("Search genres") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         if (isLibraryScanning) {
             Row(
@@ -212,7 +242,10 @@ fun GenresScreen(
             return@Column
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             items(tagGroups, key = { it.name }) { tagGroup ->
                 Card(
                     modifier = Modifier
@@ -221,18 +254,21 @@ fun GenresScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Row(
-                        modifier = Modifier.padding(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(Icons.Filled.LocalOffer, contentDescription = null)
-                        Column {
-                            Text(tagGroup.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                "${tagGroup.items.size} tracks",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
+                        Text(
+                            tagGroup.name,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            formatTrackCount(tagGroup.items.size),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
                 }
             }
@@ -244,10 +280,13 @@ fun GenresScreen(
 fun SettingsScreen(
     rootUriString: String?,
     genreSeparator: String,
+    showBrowserThumbnails: Boolean,
     graviPickerSettings: GraviPickerSettings,
     onChooseFolder: () -> Unit,
     onGenreSeparatorChanged: (String) -> Unit,
+    onShowBrowserThumbnailsChanged: (Boolean) -> Unit,
     onGraviPickerSettingsChanged: (GraviPickerSettings) -> Unit,
+    onResetSettings: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -270,6 +309,11 @@ fun SettingsScreen(
             label = { Text("Genre separator") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
+        )
+        SwitchSettingRow(
+            label = "Show browser thumbnails",
+            checked = showBrowserThumbnails,
+            onCheckedChanged = onShowBrowserThumbnailsChanged,
         )
         Text(
             "Gravi shuffle",
@@ -324,6 +368,12 @@ fun SettingsScreen(
                 )
             },
         )
+        Button(
+            onClick = onResetSettings,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Reset settings")
+        }
     }
 }
 
@@ -372,7 +422,7 @@ private fun SwitchSettingRow(
 }
 
 @Composable
-private fun BrowserEntryRow(entry: BrowserEntry, onClick: () -> Unit) {
+private fun BrowserEntryRow(entry: BrowserEntry, showThumbnails: Boolean, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -384,10 +434,11 @@ private fun BrowserEntryRow(entry: BrowserEntry, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.MusicNote,
-                contentDescription = null
-            )
+            if (entry.isDirectory) {
+                Icon(Icons.Filled.Folder, contentDescription = null)
+            } else if (showThumbnails) {
+                BrowserThumbnail(entry.audioItem?.artworkUriString)
+            }
             Text(
                 entry.name,
                 maxLines = 1,
@@ -400,6 +451,33 @@ private fun BrowserEntryRow(entry: BrowserEntry, onClick: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BrowserThumbnail(artworkUriString: String?) {
+    val context = LocalContext.current
+    val artworkBitmap = androidx.compose.runtime.remember(artworkUriString) {
+        artworkUriString?.let { uriString ->
+            runCatching {
+                context.contentResolver.openInputStream(Uri.parse(uriString))?.use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream)
+                }
+            }.getOrNull()
+        }
+    }
+
+    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+        if (artworkBitmap != null) {
+            Image(
+                bitmap = artworkBitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(Icons.Filled.MusicNote, contentDescription = null)
         }
     }
 }

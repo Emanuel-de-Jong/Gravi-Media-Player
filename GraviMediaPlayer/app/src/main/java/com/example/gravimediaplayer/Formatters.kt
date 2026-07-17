@@ -1,10 +1,7 @@
 package com.example.gravimediaplayer
 
 fun AudioItem.queueContext(): String {
-    val tagText = tags.takeIf { it.isNotEmpty() }?.joinToString(" | ")
-    return listOf(folderPath, tagText)
-        .filter { !it.isNullOrBlank() }
-        .joinToString(" • ")
+    return folderPath
         .ifBlank { "No folder or tag info" }
 }
 
