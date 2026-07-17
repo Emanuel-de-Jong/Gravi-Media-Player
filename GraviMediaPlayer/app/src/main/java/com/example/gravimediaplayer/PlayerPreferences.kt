@@ -23,6 +23,12 @@ class PlayerPreferences(context: Context) {
             preferences.edit().putString(KEY_LOOP_MODE, value.name).apply()
         }
 
+    var genreSeparator: String
+        get() = preferences.getString(KEY_GENRE_SEPARATOR, "|").orEmpty().ifBlank { "|" }
+        set(value) {
+            preferences.edit().putString(KEY_GENRE_SEPARATOR, value.ifBlank { "|" }).apply()
+        }
+
     var graviPickerSettings: GraviPickerSettings
         get() = GraviPickerSettings(
             depth = preferences.getInt(KEY_GRAVI_DEPTH, 2),
@@ -98,6 +104,7 @@ class PlayerPreferences(context: Context) {
         private const val KEY_ROOT_URI = "root_uri"
         private const val KEY_PLAY_ORDER_MODE = "play_order_mode"
         private const val KEY_LOOP_MODE = "loop_mode"
+        private const val KEY_GENRE_SEPARATOR = "genre_separator"
         private const val KEY_GRAVI_DEPTH = "gravi_depth"
         private const val KEY_GRAVI_PARENT_ODDS = "gravi_parent_odds"
         private const val KEY_GRAVI_CHILD_ODDS = "gravi_child_odds"

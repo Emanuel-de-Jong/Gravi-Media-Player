@@ -1,5 +1,8 @@
 package com.example.gravimediaplayer.ui
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,14 +26,24 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -40,7 +53,6 @@ import com.example.gravimediaplayer.PlayOrderMode
 import com.example.gravimediaplayer.PlaybackSnapshot
 import com.example.gravimediaplayer.formatTime
 import com.example.gravimediaplayer.formatTrackCount
-import com.example.gravimediaplayer.next
 import com.example.gravimediaplayer.queueContext
 import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
 
@@ -106,12 +118,14 @@ fun PlayScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = expanded, onClick = onCollapse),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onCollapse, enabled = expanded) {
@@ -119,18 +133,11 @@ fun PlayScreen(
             }
             Text(
                 "Now playing",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
         }
-        Card(
-            modifier = Modifier.size(220.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        ) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("♪", style = MaterialTheme.typography.displayLarge)
-            }
-        }
+        ArtworkCard(item?.artworkUriString)
         Text(
             text = item?.title ?: "Nothing playing",
             style = MaterialTheme.typography.titleLarge,
@@ -150,11 +157,11 @@ fun PlayScreen(
             enabled = snapshot.durationMs > 0,
         )
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatTime(snapshot.positionMs))
-            Text(formatTime(snapshot.durationMs))
+            Text(formatTime(snapshot.positionMs), style = MaterialTheme.typography.bodySmall)
+            Text(formatTime(snapshot.durationMs), style = MaterialTheme.typography.bodySmall)
         }
         Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onPrevious, enabled = item != null) {
@@ -163,12 +170,12 @@ fun PlayScreen(
             IconButton(
                 onClick = onPlayPause,
                 enabled = item != null,
-                modifier = Modifier.size(72.dp),
+                modifier = Modifier.size(64.dp),
             ) {
                 Icon(
                     if (snapshot.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (snapshot.isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier.size(48.dp),
                 )
             }
             IconButton(onClick = onNext, enabled = item != null) {
@@ -192,36 +199,103 @@ fun PlayScreen(
 }
 
 @Composable
+private fun ArtworkCard(artworkUriString: String?) {
+    val context = LocalContext.current
+    val artworkBitmap = remember(artworkUriString) {
+        artworkUriString?.let { uriString ->
+            runCatching {
+                context.contentResolver.openInputStream(Uri.parse(uriString))?.use { inputStream ->
+                    BitmapFactory.decodeStream(inputStream)
+                }
+            }.getOrNull()
+        }
+    }
+
+    Card(
+        modifier = Modifier.size(180.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (artworkBitmap != null) {
+                Image(
+                    bitmap = artworkBitmap.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text("♪", style = MaterialTheme.typography.displayLarge)
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlaybackModeRow(
     snapshot: PlaybackSnapshot,
     onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
     onLoopModeChanged: (LoopMode) -> Unit,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onPlayOrderModeChanged(snapshot.playOrderMode.next()) }) {
-            Icon(
-                Icons.Filled.Shuffle,
-                contentDescription = snapshot.playOrderMode.label,
-                tint = if (snapshot.playOrderMode != PlayOrderMode.IN_ORDER) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-            )
+        PlayOrderModeSelector(snapshot.playOrderMode, onPlayOrderModeChanged)
+        LoopModeSelector(snapshot.loopMode, onLoopModeChanged)
+    }
+}
+
+@Composable
+private fun PlayOrderModeSelector(
+    playOrderMode: PlayOrderMode,
+    onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Icon(Icons.Filled.Shuffle, contentDescription = null)
+            Text(playOrderMode.label)
         }
-        IconButton(onClick = { onLoopModeChanged(snapshot.loopMode.next()) }) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            PlayOrderMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode.label) },
+                    onClick = {
+                        expanded = false
+                        onPlayOrderModeChanged(mode)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoopModeSelector(
+    loopMode: LoopMode,
+    onLoopModeChanged: (LoopMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        TextButton(onClick = { expanded = true }) {
             Icon(
-                if (snapshot.loopMode == LoopMode.SONG) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                contentDescription = snapshot.loopMode.label,
-                tint = if (snapshot.loopMode == LoopMode.OFF) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
+                if (loopMode == LoopMode.SONG) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                contentDescription = null,
             )
+            Text(loopMode.label)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            LoopMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode.label) },
+                    onClick = {
+                        expanded = false
+                        onLoopModeChanged(mode)
+                    },
+                )
+            }
         }
     }
 }
@@ -234,7 +308,7 @@ private fun QueueList(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -251,7 +325,7 @@ private fun QueueList(
         if (snapshot.queue.isEmpty()) {
             Text("Queue is empty. Start playback from a folder, file, or genre to populate it.")
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(snapshot.queue.size) { index ->
                 val queueItem = snapshot.queue[index]
                 val isCurrentItem = index == snapshot.currentIndex
@@ -267,7 +341,7 @@ private fun QueueList(
                         }
                     ),
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(10.dp)) {
                         Text(
                             text = if (isCurrentItem) "▶ ${queueItem.title}" else queueItem.title,
                             fontWeight = if (isCurrentItem) FontWeight.Bold else FontWeight.Normal,

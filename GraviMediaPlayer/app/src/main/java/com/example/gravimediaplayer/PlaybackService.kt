@@ -7,12 +7,17 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -53,7 +58,14 @@ class PlaybackService : Service() {
         createNotificationChannel()
         player = ExoPlayer.Builder(this).build()
         player?.addListener(playbackListener)
-        mediaSession = MediaSessionCompat(this, "Gravi Media Player")
+        mediaSession = MediaSessionCompat(this, "Gravi Media Player").apply {
+            setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
+                        MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
+            setCallback(mediaSessionCallback)
+            isActive = true
+        }
         handler.post(progressUpdater)
     }
 
@@ -75,6 +87,36 @@ class PlaybackService : Service() {
         player?.release()
         mediaSession?.release()
         super.onDestroy()
+    }
+
+    private val mediaSessionCallback = object : MediaSessionCompat.Callback() {
+        override fun onPlay() {
+            if (snapshot.isPlaying) return
+
+            togglePlayPause()
+        }
+
+        override fun onPause() {
+            if (!snapshot.isPlaying) return
+
+            togglePlayPause()
+        }
+
+        override fun onSkipToNext() {
+            playNext()
+        }
+
+        override fun onSkipToPrevious() {
+            playPrevious()
+        }
+
+        override fun onStop() {
+            stopPlayback()
+        }
+
+        override fun onSeekTo(position: Long) {
+            seekTo(position.toInt())
+        }
     }
 
     fun setListener(newListener: ((PlaybackSnapshot) -> Unit)?) {
@@ -113,6 +155,7 @@ class PlaybackService : Service() {
             currentPlayer.play()
             snapshot = snapshot.copy(isPlaying = true, positionMs = safePosition(currentPlayer))
         }
+        updateMediaSession()
         updateForegroundNotification()
         notifyListener()
     }
@@ -143,6 +186,7 @@ class PlaybackService : Service() {
         val currentPlayer = player ?: return
         currentPlayer.seekTo(positionMs.coerceIn(0, safeDuration(currentPlayer)).toLong())
         snapshot = snapshot.copy(positionMs = safePosition(currentPlayer))
+        updateMediaSession()
         notifyListener()
     }
 
@@ -176,6 +220,7 @@ class PlaybackService : Service() {
             shuffledPosition = shuffledIndexes.indexOf(index)
         }
         mediaSession?.isActive = true
+        updateMediaSession()
         updateForegroundNotification()
         notifyListener()
     }
@@ -190,6 +235,7 @@ class PlaybackService : Service() {
         )
         shuffledIndexes = emptyList()
         shuffledPosition = -1
+        updateMediaSession()
         notifyListener()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -218,6 +264,7 @@ class PlaybackService : Service() {
             durationMs = safeDuration(currentPlayer),
             errorMessage = null,
         )
+        updateMediaSession()
         updateForegroundNotification()
         notifyListener()
     }
@@ -231,6 +278,7 @@ class PlaybackService : Service() {
         val nextIndex = getNextIndex()
         if (nextIndex == null) {
             snapshot = snapshot.copy(isPlaying = false, positionMs = snapshot.durationMs)
+            updateMediaSession()
             updateForegroundNotification()
             notifyListener()
         } else {
@@ -311,6 +359,7 @@ class PlaybackService : Service() {
         val toggleTitle = if (snapshot.isPlaying) "Pause" else "Play"
         val toggleIcon =
             if (snapshot.isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        val artworkBitmap = loadArtworkBitmap(snapshot.currentItem?.artworkUriString)
         val openIntent = PendingIntent.getActivity(
             this,
             0,
@@ -323,6 +372,7 @@ class PlaybackService : Service() {
             .setContentTitle(snapshot.currentItem?.title ?: "Gravi Media Player")
             .setContentText(snapshot.currentItem?.folderPath ?: "Ready")
             .setContentIntent(openIntent)
+            .setLargeIcon(artworkBitmap)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             .setOngoing(snapshot.isPlaying)
@@ -348,6 +398,50 @@ class PlaybackService : Service() {
                     .setShowActionsInCompactView(0, 1, 2)
             )
             .build()
+    }
+
+    private fun updateMediaSession() {
+        val currentItem = snapshot.currentItem
+        val metadataBuilder = MediaMetadataCompat.Builder()
+            .putString(
+                MediaMetadataCompat.METADATA_KEY_TITLE,
+                currentItem?.title ?: "Gravi Media Player"
+            )
+            .putString(
+                MediaMetadataCompat.METADATA_KEY_ALBUM,
+                snapshot.queueTitle ?: currentItem?.folderPath.orEmpty()
+            )
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, snapshot.durationMs.toLong())
+        loadArtworkBitmap(currentItem?.artworkUriString)?.let {
+            metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
+        }
+        mediaSession?.setMetadata(metadataBuilder.build())
+
+        val state =
+            if (snapshot.isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+        mediaSession?.setPlaybackState(
+            PlaybackStateCompat.Builder()
+                .setActions(
+                    PlaybackStateCompat.ACTION_PLAY or
+                            PlaybackStateCompat.ACTION_PAUSE or
+                            PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                            PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                            PlaybackStateCompat.ACTION_SEEK_TO or
+                            PlaybackStateCompat.ACTION_STOP
+                )
+                .setState(state, snapshot.positionMs.toLong(), 1f)
+                .build()
+        )
+    }
+
+    private fun loadArtworkBitmap(artworkUriString: String?): Bitmap? {
+        val uriString = artworkUriString ?: return null
+        return runCatching {
+            contentResolver.openInputStream(Uri.parse(uriString))?.use { inputStream ->
+                BitmapFactory.decodeStream(inputStream)
+            }
+        }.getOrNull()
     }
 
     private fun servicePendingIntent(action: String, requestCode: Int): PendingIntent {

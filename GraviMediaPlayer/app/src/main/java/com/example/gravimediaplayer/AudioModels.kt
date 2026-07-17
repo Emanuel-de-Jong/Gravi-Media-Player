@@ -7,6 +7,7 @@ data class AudioItem(
     val title: String,
     val folderPath: String,
     val tags: List<String> = emptyList(),
+    val artworkUriString: String? = null,
 ) {
     val uri: Uri
         get() = Uri.parse(uriString)

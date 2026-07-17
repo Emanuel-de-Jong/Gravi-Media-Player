@@ -16,31 +16,14 @@ import java.io.File
 import java.security.MessageDigest
 
 class LibraryRepository(private val context: Context) {
+    private val audioFilesCache = mutableMapOf<String, List<AudioFileSnapshot>>()
     private val recursiveAudioItemsCache = mutableMapOf<String, List<AudioItem>>()
 
     fun loadBrowserEntries(rootUriString: String, folderStack: List<String>): List<BrowserEntry> {
-        loadMediaStoreAudioItems(rootUriString, readTags = false)?.let { items ->
-            return buildMediaStoreBrowserEntries(items, folderStack)
-        }
-
-        val rootUri = Uri.parse(rootUriString)
-        val folderDocumentId = findFolderDocumentId(rootUri, folderStack) ?: return emptyList()
-        val folderPath = folderStack.joinToString("/")
-        return queryChildDocuments(rootUri, folderDocumentId)
-            .filter { it.isDirectory || isAudioFile(it.name) }
-            .sortedWith(compareBy<LibraryDocument> { !it.isDirectory }.thenBy { it.name.lowercase() })
-            .mapNotNull { document ->
-                BrowserEntry(
-                    name = document.name,
-                    uriString = document.uriString,
-                    isDirectory = document.isDirectory,
-                    audioItem = if (!document.isDirectory) AudioItem(
-                        document.uriString,
-                        document.name,
-                        folderPath
-                    ) else null,
-                )
-            }
+        return buildCachedBrowserEntries(
+            loadAudioFiles(rootUriString).map { it.toAudioItem() },
+            folderStack,
+        )
     }
 
     fun loadRecursiveAudioItems(
@@ -52,19 +35,12 @@ class LibraryRepository(private val context: Context) {
             .joinToString("|")
         recursiveAudioItemsCache[cacheKey]?.let { return it }
 
-        loadMediaStoreAudioItems(rootUriString, readTags)?.let { items ->
-            val folderPath = folderStack.joinToString("/")
-            val filteredItems = if (folderPath.isBlank()) items else items.filter {
-                it.folderPath == folderPath || it.folderPath.startsWith("$folderPath/")
+        val folderPath = folderStack.joinToString("/")
+        val items = loadAudioFiles(rootUriString)
+            .filter {
+                folderPath.isBlank() || it.folderPath == folderPath || it.folderPath.startsWith("$folderPath/")
             }
-            recursiveAudioItemsCache[cacheKey] = filteredItems
-            return filteredItems
-        }
-
-        val rootUri = Uri.parse(rootUriString)
-        val folderDocumentId = findFolderDocumentId(rootUri, folderStack) ?: return emptyList()
-        val items =
-            collectAudioItems(rootUri, folderDocumentId, folderStack.joinToString("/"), readTags)
+            .map { it.toAudioItem() }
         recursiveAudioItemsCache[cacheKey] = items
         return items
     }
@@ -77,9 +53,9 @@ class LibraryRepository(private val context: Context) {
             .sortedBy { it.name.lowercase() }
     }
 
-    fun loadCachedGenreAudioItems(rootUriString: String): List<AudioItem> {
+    fun loadCachedGenreAudioItems(rootUriString: String, genreSeparator: String): List<AudioItem> {
         val audioFiles = loadAudioFiles(rootUriString)
-        val cachedFiles = loadGenreCache(rootUriString)
+        val cachedFiles = loadGenreCache(rootUriString, genreSeparator)
             .associateBy { it.uriString }
         val updatedFiles = audioFiles.map { audioFile ->
             val cachedFile = cachedFiles[audioFile.uriString]
@@ -95,41 +71,59 @@ class LibraryRepository(private val context: Context) {
                     audioFile.folderPath,
                     audioFile.lastModifiedMs,
                     audioFile.sizeBytes,
-                    readGenreTags(Uri.parse(audioFile.uriString)),
+                    readGenreTags(Uri.parse(audioFile.uriString), genreSeparator),
+                    audioFile.artworkUriString,
                 )
             }
         }
-        saveGenreCache(rootUriString, updatedFiles)
+        saveGenreCache(rootUriString, genreSeparator, updatedFiles)
         return updatedFiles.map { cachedFile ->
             AudioItem(
                 cachedFile.uriString,
                 cachedFile.title,
                 cachedFile.folderPath,
                 cachedFile.tags,
+                cachedFile.artworkUriString,
             )
         }
     }
 
     fun clearSessionCache() {
+        audioFilesCache.clear()
         recursiveAudioItemsCache.clear()
     }
 
-    private fun buildMediaStoreBrowserEntries(
+    private fun AudioFileSnapshot.toAudioItem(genreSeparator: String? = null): AudioItem {
+        return AudioItem(
+            uriString,
+            title,
+            folderPath,
+            genreSeparator?.let { readGenreTags(Uri.parse(uriString), it) } ?: emptyList(),
+            artworkUriString,
+        )
+    }
+
+    private fun buildCachedBrowserEntries(
         items: List<AudioItem>,
         folderStack: List<String>,
     ): List<BrowserEntry> {
         val folderPath = folderStack.joinToString("/")
         val childFolders = mutableSetOf<String>()
         val childFiles = mutableListOf<AudioItem>()
+        val childFolderTrackCounts = mutableMapOf<String, Int>()
 
         items.forEach { item ->
             if (item.folderPath == folderPath) {
                 childFiles += item
-            } else {
+            } else if (folderPath.isBlank() || item.folderPath.startsWith("$folderPath/")) {
                 val childPath = if (folderPath.isBlank()) item.folderPath else item.folderPath
                     .removePrefix("$folderPath/")
                 val childFolderName = childPath.substringBefore('/').takeIf { it.isNotBlank() }
-                if (childFolderName != null) childFolders += childFolderName
+                if (childFolderName != null) {
+                    childFolders += childFolderName
+                    childFolderTrackCounts[childFolderName] =
+                        childFolderTrackCounts.getOrDefault(childFolderName, 0) + 1
+                }
             }
         }
 
@@ -139,6 +133,7 @@ class LibraryRepository(private val context: Context) {
                 uriString = listOf(folderPath, folderName).filter { it.isNotBlank() }
                     .joinToString("/"),
                 isDirectory = true,
+                trackCount = childFolderTrackCounts[folderName] ?: 0,
             )
         }.plus(
             childFiles.map { item ->
@@ -157,12 +152,7 @@ class LibraryRepository(private val context: Context) {
         readTags: Boolean
     ): List<AudioItem>? {
         return loadMediaStoreAudioFiles(rootUriString)?.map { audioFile ->
-            AudioItem(
-                audioFile.uriString,
-                audioFile.title,
-                audioFile.folderPath,
-                if (readTags) readGenreTags(Uri.parse(audioFile.uriString)) else emptyList(),
-            )
+            audioFile.toAudioItem(if (readTags) "|" else null)
         }
     }
 
@@ -186,6 +176,7 @@ class LibraryRepository(private val context: Context) {
             MediaStore.Audio.Media.RELATIVE_PATH,
             MediaStore.Audio.Media.DATE_MODIFIED,
             MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.ALBUM_ID,
         )
         val selection = if (normalizedRootPath.isBlank()) {
             "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -208,6 +199,7 @@ class LibraryRepository(private val context: Context) {
                 cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
             val modifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
             val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+            val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             while (cursor.moveToNext()) {
                 val name = cursor.getStringOrEmpty(nameColumn)
                 if (!isAudioFile(name)) continue
@@ -224,6 +216,7 @@ class LibraryRepository(private val context: Context) {
                     folderPath,
                     cursor.getLongOrZero(modifiedColumn) * 1000,
                     cursor.getLongOrZero(sizeColumn),
+                    albumArtworkUriString(cursor.getLongOrZero(albumIdColumn)),
                 )
             }
         }
@@ -256,21 +249,23 @@ class LibraryRepository(private val context: Context) {
         readTags: Boolean
     ): List<AudioItem> {
         return collectAudioFiles(rootUri, folderDocumentId, folderPath).map { audioFile ->
-            AudioItem(
-                audioFile.uriString,
-                audioFile.title,
-                audioFile.folderPath,
-                if (readTags) readGenreTags(Uri.parse(audioFile.uriString)) else emptyList(),
-            )
+            audioFile.toAudioItem(if (readTags) "|" else null)
         }
     }
 
     private fun loadAudioFiles(rootUriString: String): List<AudioFileSnapshot> {
-        loadMediaStoreAudioFiles(rootUriString)?.let { return it }
+        audioFilesCache[rootUriString]?.let { return it }
+
+        loadMediaStoreAudioFiles(rootUriString)?.let {
+            audioFilesCache[rootUriString] = it
+            return it
+        }
 
         val rootUri = Uri.parse(rootUriString)
         val folderDocumentId = findFolderDocumentId(rootUri, emptyList()) ?: return emptyList()
-        return collectAudioFiles(rootUri, folderDocumentId, "")
+        val audioFiles = collectAudioFiles(rootUri, folderDocumentId, "")
+        audioFilesCache[rootUriString] = audioFiles
+        return audioFiles
     }
 
     private fun collectAudioFiles(
@@ -298,6 +293,7 @@ class LibraryRepository(private val context: Context) {
                             folderPath,
                             document.lastModifiedMs,
                             document.sizeBytes,
+                            null,
                         )
                     )
 
@@ -306,13 +302,17 @@ class LibraryRepository(private val context: Context) {
             }
     }
 
-    private fun loadGenreCache(rootUriString: String): List<GenreCacheFile> {
+    private fun loadGenreCache(
+        rootUriString: String,
+        genreSeparator: String
+    ): List<GenreCacheFile> {
         val cacheFile = genreCacheFile(rootUriString)
         if (!cacheFile.exists()) return emptyList()
 
         return runCatching {
             val json = JSONObject(cacheFile.readText())
             if (json.optString("rootUriString") != rootUriString) return emptyList()
+            if (json.optString("genreSeparator", "|") != genreSeparator) return emptyList()
 
             val files = json.optJSONArray("files") ?: JSONArray()
             (0 until files.length()).mapNotNull { index ->
@@ -324,12 +324,17 @@ class LibraryRepository(private val context: Context) {
                     file.optLong("lastModifiedMs"),
                     file.optLong("sizeBytes"),
                     file.optJSONArray("tags").orEmptyStringList(),
+                    file.optString("artworkUriString").takeIf { it.isNotBlank() },
                 ).takeIf { it.uriString.isNotBlank() }
             }
         }.getOrDefault(emptyList())
     }
 
-    private fun saveGenreCache(rootUriString: String, files: List<GenreCacheFile>) {
+    private fun saveGenreCache(
+        rootUriString: String,
+        genreSeparator: String,
+        files: List<GenreCacheFile>
+    ) {
         val jsonFiles = JSONArray()
         files.forEach { file ->
             jsonFiles.put(
@@ -340,10 +345,12 @@ class LibraryRepository(private val context: Context) {
                     .put("lastModifiedMs", file.lastModifiedMs)
                     .put("sizeBytes", file.sizeBytes)
                     .put("tags", JSONArray(file.tags))
+                    .put("artworkUriString", file.artworkUriString)
             )
         }
         val json = JSONObject()
             .put("rootUriString", rootUriString)
+            .put("genreSeparator", genreSeparator)
             .put("scannedAtMs", System.currentTimeMillis())
             .put("files", jsonFiles)
         genreCacheFile(rootUriString).writeText(json.toString())
@@ -353,21 +360,31 @@ class LibraryRepository(private val context: Context) {
         return File(context.filesDir, "genre_cache_${rootUriString.sha256()}.json")
     }
 
-    private fun readGenreTags(uri: Uri): List<String> {
+    private fun readGenreTags(uri: Uri, genreSeparator: String): List<String> {
         val retriever = MediaMetadataRetriever()
         return try {
             runCatching {
                 retriever.setDataSource(context, uri)
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)
                     .orEmpty()
-                    .split('|')
+                    .split(genreSeparator.ifBlank { "|" })
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
+                    .filter { tag -> tag.any { !it.isDigit() && !it.isWhitespace() } }
                     .distinct()
             }.getOrDefault(emptyList())
         } finally {
             retriever.release()
         }
+    }
+
+    private fun albumArtworkUriString(albumId: Long): String? {
+        if (albumId <= 0) return null
+
+        return ContentUris.withAppendedId(
+            Uri.parse("content://media/external/audio/albumart"),
+            albumId,
+        ).toString()
     }
 
     private fun findFolderDocumentId(rootUri: Uri, folderStack: List<String>): String? {
@@ -465,6 +482,7 @@ private data class AudioFileSnapshot(
     val folderPath: String,
     val lastModifiedMs: Long,
     val sizeBytes: Long,
+    val artworkUriString: String?,
 )
 
 private data class GenreCacheFile(
@@ -474,6 +492,7 @@ private data class GenreCacheFile(
     val lastModifiedMs: Long,
     val sizeBytes: Long,
     val tags: List<String>,
+    val artworkUriString: String?,
 ) {
     fun matches(audioFile: AudioFileSnapshot): Boolean {
         return uriString == audioFile.uriString &&

@@ -4,10 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
@@ -75,12 +79,12 @@ fun FoldersScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             "Folders",
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
         if (rootUriString == null) {
@@ -90,37 +94,42 @@ fun FoldersScreen(
         }
 
         Text(
-            text = if (folderStack.isEmpty()) "Root music folder" else folderStack.joinToString(" / "),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = "${formatTrackCount(currentTrackCount)} directly in this folder",
+            text = formatTrackCount(currentTrackCount),
             style = MaterialTheme.typography.bodySmall,
         )
         val hasPlayableFolderContent = entries.isNotEmpty()
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconButton(onClick = onBack, enabled = folderStack.isNotEmpty()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onBack,
+                enabled = folderStack.isNotEmpty(),
+                modifier = Modifier.size(36.dp),
+            ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up")
             }
-            Button(
-                onClick = onPlayFolder,
-                enabled = hasPlayableFolderContent && !isFolderActionRunning
-            ) { Text("Ordered") }
-            Button(
-                onClick = onShuffleFolder,
-                enabled = hasPlayableFolderContent && !isFolderActionRunning
-            ) { Text("Shuffled") }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = onGraviShuffleFolder,
-                enabled = hasPlayableFolderContent && !isFolderActionRunning
-            ) { Text("Gravi") }
-            Button(
-                onClick = onExportFolder,
-                enabled = hasPlayableFolderContent && !isFolderActionRunning
-            ) { Text("Export") }
+            CompactFolderButton(
+                "Ordered",
+                hasPlayableFolderContent && !isFolderActionRunning,
+                onPlayFolder
+            )
+            CompactFolderButton(
+                "Shuffled",
+                hasPlayableFolderContent && !isFolderActionRunning,
+                onShuffleFolder
+            )
+            CompactFolderButton(
+                "Gravi",
+                hasPlayableFolderContent && !isFolderActionRunning,
+                onGraviShuffleFolder
+            )
+            CompactFolderButton(
+                "Export",
+                hasPlayableFolderContent && !isFolderActionRunning,
+                onExportFolder
+            )
         }
         if (isFolderActionRunning) {
             Row(
@@ -134,7 +143,7 @@ fun FoldersScreen(
         if (entries.isEmpty()) {
             Text("No folders or supported audio files found here. Supported extensions: ${LibraryRepository.audioExtensions.joinToString()}.")
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(entries, key = { it.uriString }) { entry ->
                 BrowserEntryRow(
                     entry = entry,
@@ -144,6 +153,20 @@ fun FoldersScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CompactFolderButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .height(36.dp)
+            .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -163,7 +186,7 @@ fun GenresScreen(
     ) {
         Text(
             "Genres",
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
         if (rootUriString == null) {
@@ -220,8 +243,10 @@ fun GenresScreen(
 @Composable
 fun SettingsScreen(
     rootUriString: String?,
+    genreSeparator: String,
     graviPickerSettings: GraviPickerSettings,
     onChooseFolder: () -> Unit,
+    onGenreSeparatorChanged: (String) -> Unit,
     onGraviPickerSettingsChanged: (GraviPickerSettings) -> Unit,
 ) {
     Column(
@@ -232,14 +257,20 @@ fun SettingsScreen(
     ) {
         Text(
             "Settings",
-            style = MaterialTheme.typography.headlineMedium,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
         Text(if (rootUriString == null) "No music folder selected." else "Music folder selected and remembered.")
         Button(onClick = onChooseFolder) {
             Text(if (rootUriString == null) "Choose music folder" else "Change music folder")
         }
-        Text("Playback uses a foreground media notification, so music can continue while the screen is locked or another app is open.")
+        OutlinedTextField(
+            value = genreSeparator,
+            onValueChange = onGenreSeparatorChanged,
+            label = { Text("Genre separator") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Text(
             "Gravi shuffle",
             style = MaterialTheme.typography.titleLarge,
@@ -349,22 +380,25 @@ private fun BrowserEntryRow(entry: BrowserEntry, onClick: () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 if (entry.isDirectory) Icons.Filled.Folder else Icons.Filled.MusicNote,
                 contentDescription = null
             )
-            Column {
-                Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (entry.trackCount != null) {
-                    Text(
-                        formatTrackCount(entry.trackCount),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+            Text(
+                entry.name,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (entry.trackCount != null) {
+                Text(
+                    formatTrackCount(entry.trackCount),
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }
