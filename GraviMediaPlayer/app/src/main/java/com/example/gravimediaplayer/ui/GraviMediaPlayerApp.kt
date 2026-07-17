@@ -491,6 +491,13 @@ fun GraviMediaPlayerApp() {
                                     tagGroups = emptyList()
                                     scannedGenreRootUriString = null
                                 },
+                                onClearCaches = {
+                                    libraryRepository.clearAllCaches(rootUriString)
+                                    browserEntries = emptyList()
+                                    tagGroups = emptyList()
+                                    scannedGenreRootUriString = null
+                                    mediaLibraryPermissionVersion++
+                                },
                             )
                         }
                     }

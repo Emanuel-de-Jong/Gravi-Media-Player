@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
@@ -21,9 +22,12 @@ import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.exoplayer.ExoPlayer
 
 class PlaybackService : Service() {
@@ -56,7 +60,7 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        player = ExoPlayer.Builder(this).build()
+        player = buildPlayer()
         player?.addListener(playbackListener)
         mediaSession = MediaSessionCompat(this, "Gravi Media Player").apply {
             setFlags(
@@ -67,6 +71,27 @@ class PlaybackService : Service() {
             isActive = true
         }
         handler.post(progressUpdater)
+    }
+
+    private fun buildPlayer(): ExoPlayer {
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setAllowedCapturePolicy(C.ALLOW_CAPTURE_BY_NONE)
+            .build()
+        val offloadPreferences = TrackSelectionParameters.AudioOffloadPreferences.Builder()
+            .setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
+            .setIsGaplessSupportRequired(false)
+            .setIsSpeedChangeSupportRequired(false)
+            .build()
+        return ExoPlayer.Builder(this).build().apply {
+            trackSelectionParameters = trackSelectionParameters
+                .buildUpon()
+                .setAudioOffloadPreferences(offloadPreferences)
+                .build()
+            setAudioAttributes(audioAttributes, true)
+            setSkipSilenceEnabled(false)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -204,16 +229,22 @@ class PlaybackService : Service() {
     private fun playIndex(index: Int) {
         val item = snapshot.queue.getOrNull(index) ?: return
         val currentPlayer = player ?: return
+        val playbackItem = readPlaybackMetadata(item)
+        val updatedQueue = snapshot.queue.toMutableList().apply {
+            this[index] = playbackItem
+        }
         currentPlayer.stop()
         currentPlayer.clearMediaItems()
-        currentPlayer.setMediaItem(MediaItem.fromUri(item.uri))
+        currentPlayer.setMediaItem(MediaItem.fromUri(playbackItem.uri))
         currentPlayer.prepare()
         currentPlayer.play()
         snapshot = snapshot.copy(
+            queue = updatedQueue,
             currentIndex = index,
             isPlaying = true,
             positionMs = 0,
-            durationMs = 0,
+            durationMs = playbackItem.durationMs?.toInt() ?: 0,
+            audioInfoText = playbackItem.compactAudioInfo(),
             errorMessage = null
         )
         if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE && index in shuffledIndexes) {
@@ -262,6 +293,7 @@ class PlaybackService : Service() {
             isPlaying = currentPlayer.isPlaying,
             positionMs = safePosition(currentPlayer),
             durationMs = safeDuration(currentPlayer),
+            audioInfoText = snapshot.currentItem?.compactAudioInfo(),
             errorMessage = null,
         )
         updateMediaSession()
@@ -442,6 +474,26 @@ class PlaybackService : Service() {
                 BitmapFactory.decodeStream(inputStream)
             }
         }.getOrNull()
+    }
+
+    private fun readPlaybackMetadata(item: AudioItem): AudioItem {
+        if (item.mimeType != null || item.bitrate != null || item.durationMs != null) return item
+
+        val retriever = MediaMetadataRetriever()
+        return try {
+            runCatching {
+                retriever.setDataSource(this, item.uri)
+                item.copy(
+                    mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE),
+                    bitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+                        ?.toIntOrNull(),
+                    durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull(),
+                )
+            }.getOrDefault(item)
+        } finally {
+            retriever.release()
+        }
     }
 
     private fun servicePendingIntent(action: String, requestCode: Int): PendingIntent {

@@ -287,6 +287,7 @@ fun SettingsScreen(
     onShowBrowserThumbnailsChanged: (Boolean) -> Unit,
     onGraviPickerSettingsChanged: (GraviPickerSettings) -> Unit,
     onResetSettings: () -> Unit,
+    onClearCaches: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -373,6 +374,12 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Reset settings")
+        }
+        Button(
+            onClick = onClearCaches,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Clear cache")
         }
     }
 }

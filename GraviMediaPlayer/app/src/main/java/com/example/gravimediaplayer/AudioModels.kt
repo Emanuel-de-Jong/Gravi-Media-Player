@@ -8,6 +8,9 @@ data class AudioItem(
     val folderPath: String,
     val tags: List<String> = emptyList(),
     val artworkUriString: String? = null,
+    val mimeType: String? = null,
+    val bitrate: Int? = null,
+    val durationMs: Long? = null,
 ) {
     val uri: Uri
         get() = Uri.parse(uriString)
@@ -42,6 +45,7 @@ data class PlaybackSnapshot(
     val loopMode: LoopMode = LoopMode.OFF,
     val positionMs: Int = 0,
     val durationMs: Int = 0,
+    val audioInfoText: String? = null,
     val errorMessage: String? = null,
 ) {
     val currentItem: AudioItem?

@@ -158,6 +158,15 @@ fun PlayScreen(
         )
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(snapshot.positionMs), style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = snapshot.audioInfoText.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+            )
             Text(formatTime(snapshot.durationMs), style = MaterialTheme.typography.bodySmall)
         }
         Row(
