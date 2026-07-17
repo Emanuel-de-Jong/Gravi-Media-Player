@@ -477,7 +477,7 @@ class PlaybackService : Service() {
     }
 
     private fun readPlaybackMetadata(item: AudioItem): AudioItem {
-        if (item.mimeType != null || item.bitrate != null || item.durationMs != null) return item
+        if (item.mimeType != null && item.bitrate != null && item.durationMs != null && item.lyrics != null) return item
 
         val retriever = MediaMetadataRetriever()
         return try {
@@ -489,6 +489,7 @@ class PlaybackService : Service() {
                         ?.toIntOrNull(),
                     durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         ?.toLongOrNull(),
+                    lyrics = Mp3LyricsReader.readLyrics(this, item.uri),
                 )
             }.getOrDefault(item)
         } finally {

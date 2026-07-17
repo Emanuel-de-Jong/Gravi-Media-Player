@@ -13,6 +13,7 @@ data class AudioItem(
     val durationMs: Long? = null,
     val artist: String? = null,
     val releaseDate: String? = null,
+    val lyrics: String? = null,
     val lastModifiedMs: Long = 0,
 ) {
     val uri: Uri

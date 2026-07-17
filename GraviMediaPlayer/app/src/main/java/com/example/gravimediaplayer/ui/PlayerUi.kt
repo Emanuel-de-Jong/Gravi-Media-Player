@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -32,6 +31,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,11 +50,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.gravimediaplayer.AudioItem
 import com.example.gravimediaplayer.LoopMode
 import com.example.gravimediaplayer.PlayOrderMode
 import com.example.gravimediaplayer.PlaybackSnapshot
 import com.example.gravimediaplayer.formatTime
-import com.example.gravimediaplayer.formatTrackCount
 import com.example.gravimediaplayer.queueContext
 import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
 
@@ -121,7 +122,7 @@ fun PlayScreen(
             .fillMaxSize()
             .padding(start = 12.dp, top = 12.dp, end = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
             modifier = Modifier
@@ -186,7 +187,7 @@ fun PlayScreen(
                 Icon(
                     if (snapshot.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (snapshot.isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(44.dp),
                 )
             }
             IconButton(onClick = onNext, enabled = item != null) {
@@ -201,11 +202,59 @@ fun PlayScreen(
         if (snapshot.errorMessage != null) {
             Text(snapshot.errorMessage, color = MaterialTheme.colorScheme.error)
         }
-        QueueList(
+        NowPlayingTabs(
             snapshot = snapshot,
             onPlayQueueIndex = onPlayQueueIndex,
             modifier = Modifier.weight(1f),
         )
+    }
+}
+
+private enum class NowPlayingTab(
+    val title: String,
+) {
+    QUEUE("Queue"),
+    LYRICS("Lyrics"),
+}
+
+@Composable
+private fun NowPlayingTabs(
+    snapshot: PlaybackSnapshot,
+    onPlayQueueIndex: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var selectedTab by remember { mutableStateOf(NowPlayingTab.QUEUE) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        TabRow(selectedTabIndex = NowPlayingTab.entries.indexOf(selectedTab)) {
+            NowPlayingTab.entries.forEach { tab ->
+                Tab(
+                    selected = selectedTab == tab,
+                    onClick = { selectedTab = tab },
+                    text = {
+                        Text(
+                            if (tab == NowPlayingTab.QUEUE) {
+                                "${tab.title} (${snapshot.queue.size} tracks)"
+                            } else {
+                                tab.title
+                            }
+                        )
+                    },
+                )
+            }
+        }
+        when (selectedTab) {
+            NowPlayingTab.QUEUE -> QueueList(
+                snapshot = snapshot,
+                onPlayQueueIndex = onPlayQueueIndex,
+                modifier = Modifier.weight(1f),
+            )
+
+            NowPlayingTab.LYRICS -> LyricsView(
+                audioItem = snapshot.currentItem,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -321,18 +370,6 @@ private fun QueueList(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null)
-            Text(
-                "Queue",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(formatTrackCount(snapshot.queue.size), style = MaterialTheme.typography.bodySmall)
-        }
         if (snapshot.queue.isEmpty()) {
             Text("Queue is empty. Start playback from a folder, file, or genre to populate it.")
         }
@@ -359,8 +396,6 @@ private fun QueueList(
                         Text(
                             text = if (isCurrentItem) "▶ ${queueItem.displayTitle}" else queueItem.displayTitle,
                             fontWeight = if (isCurrentItem) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = queueItem.queueContext(),
@@ -371,6 +406,32 @@ private fun QueueList(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LyricsView(
+    audioItem: AudioItem?,
+    modifier: Modifier = Modifier,
+) {
+    val lyrics = audioItem?.lyrics?.takeIf { it.isNotBlank() }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        item {
+            Text(
+                text = lyrics ?: if (audioItem == null) {
+                    "No song is playing."
+                } else {
+                    "No lyrics found for this song."
+                },
+                style = MaterialTheme.typography.bodyLarge,
+            )
         }
     }
 }
