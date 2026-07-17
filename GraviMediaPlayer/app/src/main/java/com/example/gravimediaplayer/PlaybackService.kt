@@ -90,7 +90,7 @@ class PlaybackService : Service() {
                 .setAudioOffloadPreferences(offloadPreferences)
                 .build()
             setAudioAttributes(audioAttributes, true)
-            setSkipSilenceEnabled(false)
+            skipSilenceEnabled = false
         }
     }
 

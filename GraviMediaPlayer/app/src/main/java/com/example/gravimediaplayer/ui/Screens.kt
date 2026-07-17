@@ -102,7 +102,7 @@ fun FoldersScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(start = 12.dp, top = 12.dp, end = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             "Folders",
@@ -282,8 +282,8 @@ fun GenresScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 16.dp, top = 16.dp, end = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(start = 12.dp, top = 12.dp, end = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             "Genres",
@@ -366,15 +366,14 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(start = 12.dp, top = 12.dp, end = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             "Settings",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold
         )
-        Text(if (rootUriString == null) "No music folder selected." else "Music folder selected and remembered.")
         Button(onClick = onChooseFolder) {
             Text(if (rootUriString == null) "Choose music folder" else "Change music folder")
         }
@@ -411,27 +410,6 @@ fun SettingsScreen(
                 onGraviPickerSettingsChanged(
                     graviPickerSettings.copy(queueEntries = it).sanitized()
                 )
-            },
-        )
-        IntegerSettingField(
-            label = "Depth",
-            value = graviPickerSettings.depth,
-            onValueChanged = {
-                onGraviPickerSettingsChanged(graviPickerSettings.copy(depth = it).sanitized())
-            },
-        )
-        SwitchSettingRow(
-            label = "Parent odds",
-            checked = graviPickerSettings.parentOdds,
-            onCheckedChanged = {
-                onGraviPickerSettingsChanged(graviPickerSettings.copy(parentOdds = it).sanitized())
-            },
-        )
-        SwitchSettingRow(
-            label = "Child odds",
-            checked = graviPickerSettings.childOdds,
-            onCheckedChanged = {
-                onGraviPickerSettingsChanged(graviPickerSettings.copy(childOdds = it).sanitized())
             },
         )
         IntegerSettingField(
@@ -531,8 +509,6 @@ private fun BrowserEntryRow(entry: BrowserEntry, showThumbnails: Boolean, onClic
             }
             Text(
                 entry.name,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             if (entry.trackCount != null) {
