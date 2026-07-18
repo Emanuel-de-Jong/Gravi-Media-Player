@@ -6,13 +6,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -63,7 +74,12 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = genreSeparator,
                 onValueChange = onGenreSeparatorChanged,
-                label = { Text("Genre separator") },
+                label = {
+                    SettingLabel(
+                        label = "Genre separator",
+                        infoText = "The Genre ID3 tag in a KBOTs Mixes MP3 stores its Merge Playlists. It's stored as string with this separator dividing the values.",
+                    )
+                },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
@@ -79,6 +95,7 @@ fun SettingsScreen(
         SwitchSettingRow(
             label = "Parent odds",
             checked = graviPickerSettings.parentOdds,
+            infoText = "Balances folder branches when picking a folder, so a small branch can still compete with a large branch. This makes the categories (General, Pop, Rock, EDM) equally likely, instead of just the individual playlists.",
             onCheckedChanged = {
                 onGraviPickerSettingsChanged(graviPickerSettings.copy(parentOdds = it).sanitized())
             },
@@ -86,6 +103,7 @@ fun SettingsScreen(
         SwitchSettingRow(
             label = "Child odds",
             checked = graviPickerSettings.childOdds,
+            infoText = "Balances subfolder branches inside the picked folder before picking a file.",
             onCheckedChanged = {
                 onGraviPickerSettingsChanged(graviPickerSettings.copy(childOdds = it).sanitized())
             },
@@ -112,10 +130,11 @@ fun SettingsScreen(
                     onGraviPickerSettingsChanged(graviPickerSettings.copy(depth = it).sanitized())
                 },
                 modifier = Modifier.weight(1f),
+                infoText = "How deep subfolders can be to be included in the picking. Deeper and the files of a subfolder and direct files have equal odds (Except when Child odds is enabled). Setting this to 1 has the effect of Parent odds but makes playlists with more songs more likely than others in the same category.",
             )
         }
         IntegerSettingField(
-            label = "Even odds min file count",
+            label = "Playlist songs before less odds",
             value = graviPickerSettings.evenOddsMinFileCount,
             onValueChanged = {
                 onGraviPickerSettingsChanged(
@@ -123,9 +142,10 @@ fun SettingsScreen(
                 )
             },
             modifier = Modifier.fillMaxWidth(),
+            infoText = "Folders with this many files or fewer become less likely. Use -1 to disable this.",
         )
         DecimalSettingField(
-            label = "Less likely divisor",
+            label = "Playlist less odds strength",
             value = graviPickerSettings.lessLikelyDivisor,
             onValueChanged = {
                 onGraviPickerSettingsChanged(
@@ -133,6 +153,7 @@ fun SettingsScreen(
                 )
             },
             modifier = Modifier.fillMaxWidth(),
+            infoText = "How strongly low-file-count folders are reduced. Higher means less likely.",
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -161,13 +182,14 @@ private fun IntegerSettingField(
     value: Int,
     onValueChanged: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    infoText: String? = null,
 ) {
     OutlinedTextField(
         value = value.toString(),
         onValueChange = { newValue ->
             newValue.toIntOrNull()?.let(onValueChanged)
         },
-        label = { Text(label) },
+        label = { SettingLabel(label, infoText) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         singleLine = true,
         modifier = modifier,
@@ -180,13 +202,14 @@ private fun DecimalSettingField(
     value: Float,
     onValueChanged: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    infoText: String? = null,
 ) {
     OutlinedTextField(
         value = value.toString(),
         onValueChange = { newValue ->
             newValue.toFloatOrNull()?.let(onValueChanged)
         },
-        label = { Text(label) },
+        label = { SettingLabel(label, infoText) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         singleLine = true,
         modifier = modifier,
@@ -198,14 +221,57 @@ private fun SwitchSettingRow(
     label: String,
     checked: Boolean,
     onCheckedChanged: (Boolean) -> Unit,
+    infoText: String? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label)
+        SettingLabel(label, infoText)
         Switch(checked = checked, onCheckedChange = onCheckedChanged)
+    }
+}
+
+@Composable
+private fun SettingLabel(label: String, infoText: String?) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label)
+        if (infoText != null) {
+            InfoPopupButton(label, infoText)
+        }
+    }
+}
+
+@Composable
+private fun InfoPopupButton(title: String, text: String) {
+    var isOpen by remember { mutableStateOf(false) }
+
+    IconButton(
+        onClick = { isOpen = true },
+        modifier = Modifier.size(24.dp),
+    ) {
+        Icon(
+            Icons.Filled.Info,
+            contentDescription = "$title info",
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+    if (isOpen) {
+        AlertDialog(
+            onDismissRequest = { isOpen = false },
+            confirmButton = {
+                TextButton(onClick = { isOpen = false }) {
+                    Text("OK")
+                }
+            },
+            title = { Text(title) },
+            text = { Text(text) },
+        )
     }
 }
 
