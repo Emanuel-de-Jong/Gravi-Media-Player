@@ -95,7 +95,7 @@ fun SettingsScreen(
         SwitchSettingRow(
             label = "Parent odds",
             checked = graviPickerSettings.parentOdds,
-            infoText = "Balances folder branches when picking a folder, so a small branch can still compete with a large branch. This makes the categories (General, Pop, Rock, EDM) equally likely, instead of just the individual playlists.",
+            infoText = "Balances folder branches when picking a folder. This makes the categories (General, Pop, Rock, EDM) equally likely, instead of just the individual playlists.",
             onCheckedChanged = {
                 onGraviPickerSettingsChanged(graviPickerSettings.copy(parentOdds = it).sanitized())
             },
@@ -130,7 +130,7 @@ fun SettingsScreen(
                     onGraviPickerSettingsChanged(graviPickerSettings.copy(depth = it).sanitized())
                 },
                 modifier = Modifier.weight(1f),
-                infoText = "How deep subfolders can be to be included in the picking. Deeper and the files of a subfolder and direct files have equal odds (Except when Child odds is enabled). Setting this to 1 has the effect of Parent odds but makes playlists with more songs more likely than others in the same category.",
+                infoText = "Controls which folder depth becomes a candidate. Setting this to 1 has the effect of Parent odds but makes playlists with more songs more likely than others in the same category.",
             )
         }
         IntegerSettingField(
