@@ -11,19 +11,10 @@ import android.os.Build
 import android.os.IBinder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -37,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
-import androidx.compose.ui.unit.dp
 import com.example.gravimediaplayer.AudioItem
 import com.example.gravimediaplayer.BrowserEntry
 import com.example.gravimediaplayer.BrowserSortMode
@@ -218,39 +208,12 @@ fun GraviMediaPlayerApp() {
         }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            if (!isGeneratingCache) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp)
-                        .background(MaterialTheme.colorScheme.surface)
-                ) {
-                    NavigationBar(
-                        modifier = Modifier.fillMaxSize(),
-                        windowInsets = WindowInsets(0.dp),
-                    ) {
-                        AppDestinations.entries.forEach { destination ->
-                            NavigationBarItem(
-                                icon = {
-                                    Icon(
-                                        destination.icon,
-                                        contentDescription = destination.label
-                                    )
-                                },
-                                selected = destination == currentDestination,
-                                onClick = {
-                                    isPlayerExpanded = false
-                                    currentDestination = destination
-                                },
-                                alwaysShowLabel = false,
-                            )
-                        }
-                    }
-                }
-            }
+    AppScaffold(
+        currentDestination = currentDestination,
+        isGeneratingCache = isGeneratingCache,
+        onDestinationSelected = { destination ->
+            isPlayerExpanded = false
+            currentDestination = destination
         },
     ) { innerPadding ->
         Box(
