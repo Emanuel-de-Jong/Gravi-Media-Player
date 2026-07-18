@@ -377,6 +377,11 @@ fun SettingsScreen(
         Button(onClick = onChooseFolder) {
             Text(if (rootUriString == null) "Choose music folder" else "Change music folder")
         }
+        SwitchSettingRow(
+            label = "Show browser thumbnails",
+            checked = showBrowserThumbnails,
+            onCheckedChanged = onShowBrowserThumbnailsChanged,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -393,15 +398,17 @@ fun SettingsScreen(
                 Text("Apply")
             }
         }
-        SwitchSettingRow(
-            label = "Show browser thumbnails",
-            checked = showBrowserThumbnails,
-            onCheckedChanged = onShowBrowserThumbnailsChanged,
-        )
         Text(
             "Gravi shuffle",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold
+        )
+        SwitchSettingRow(
+            label = "Parent odds",
+            checked = graviPickerSettings.parentOdds,
+            onCheckedChanged = {
+                onGraviPickerSettingsChanged(graviPickerSettings.copy(parentOdds = it).sanitized())
+            },
         )
         IntegerSettingField(
             label = "Queue entries",
