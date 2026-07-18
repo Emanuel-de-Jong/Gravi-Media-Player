@@ -17,8 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.gravimediaplayer.GraviPickerSettings
+import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
 
 @Composable
 fun SettingsScreen(
@@ -81,15 +83,37 @@ fun SettingsScreen(
                 onGraviPickerSettingsChanged(graviPickerSettings.copy(parentOdds = it).sanitized())
             },
         )
-        IntegerSettingField(
-            label = "Queue entries",
-            value = graviPickerSettings.queueEntries,
-            onValueChanged = {
-                onGraviPickerSettingsChanged(
-                    graviPickerSettings.copy(queueEntries = it).sanitized()
-                )
+        SwitchSettingRow(
+            label = "Child odds",
+            checked = graviPickerSettings.childOdds,
+            onCheckedChanged = {
+                onGraviPickerSettingsChanged(graviPickerSettings.copy(childOdds = it).sanitized())
             },
         )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IntegerSettingField(
+                label = "Queue entries",
+                value = graviPickerSettings.queueEntries,
+                onValueChanged = {
+                    onGraviPickerSettingsChanged(
+                        graviPickerSettings.copy(queueEntries = it).sanitized()
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
+            IntegerSettingField(
+                label = "Depth",
+                value = graviPickerSettings.depth,
+                onValueChanged = {
+                    onGraviPickerSettingsChanged(graviPickerSettings.copy(depth = it).sanitized())
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
         IntegerSettingField(
             label = "Even odds min file count",
             value = graviPickerSettings.evenOddsMinFileCount,
@@ -98,6 +122,7 @@ fun SettingsScreen(
                     graviPickerSettings.copy(evenOddsMinFileCount = it).sanitized()
                 )
             },
+            modifier = Modifier.fillMaxWidth(),
         )
         DecimalSettingField(
             label = "Less likely divisor",
@@ -107,24 +132,36 @@ fun SettingsScreen(
                     graviPickerSettings.copy(lessLikelyDivisor = it).sanitized()
                 )
             },
+            modifier = Modifier.fillMaxWidth(),
         )
-        Button(
-            onClick = onResetSettings,
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Reset settings")
-        }
-        Button(
-            onClick = onClearCaches,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Clear cache")
+            Button(
+                onClick = onClearCaches,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Clear cache")
+            }
+            Button(
+                onClick = onResetSettings,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Reset settings")
+            }
         }
     }
 }
 
 @Composable
-private fun IntegerSettingField(label: String, value: Int, onValueChanged: (Int) -> Unit) {
+private fun IntegerSettingField(
+    label: String,
+    value: Int,
+    onValueChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     OutlinedTextField(
         value = value.toString(),
         onValueChange = { newValue ->
@@ -133,12 +170,17 @@ private fun IntegerSettingField(label: String, value: Int, onValueChanged: (Int)
         label = { Text(label) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
     )
 }
 
 @Composable
-private fun DecimalSettingField(label: String, value: Float, onValueChanged: (Float) -> Unit) {
+private fun DecimalSettingField(
+    label: String,
+    value: Float,
+    onValueChanged: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     OutlinedTextField(
         value = value.toString(),
         onValueChange = { newValue ->
@@ -147,7 +189,7 @@ private fun DecimalSettingField(label: String, value: Float, onValueChanged: (Fl
         label = { Text(label) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
     )
 }
 
@@ -164,5 +206,25 @@ private fun SwitchSettingRow(
     ) {
         Text(label)
         Switch(checked = checked, onCheckedChange = onCheckedChanged)
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun SettingsScreenPreview() {
+    GraviMediaPlayerTheme {
+        SettingsScreen(
+            rootUriString = null,
+            genreSeparator = ";",
+            showBrowserThumbnails = false,
+            graviPickerSettings = GraviPickerSettings(),
+            onChooseFolder = {},
+            onGenreSeparatorChanged = {},
+            onApplyGenreSeparator = {},
+            onShowBrowserThumbnailsChanged = {},
+            onGraviPickerSettingsChanged = {},
+            onResetSettings = {},
+            onClearCaches = {},
+        )
     }
 }

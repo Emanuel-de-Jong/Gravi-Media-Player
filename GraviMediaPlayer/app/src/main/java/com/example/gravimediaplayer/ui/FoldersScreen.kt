@@ -41,12 +41,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.example.gravimediaplayer.BrowserEntry
 import com.example.gravimediaplayer.BrowserSortMode
 import com.example.gravimediaplayer.LibraryRepository
 import com.example.gravimediaplayer.formatTrackCount
+import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
 
 @Composable
 fun FoldersScreen(
@@ -263,5 +265,34 @@ private fun BrowserThumbnail(artworkUriString: String?) {
         } else {
             Icon(Icons.Filled.MusicNote, contentDescription = null)
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun FoldersScreenPreview() {
+    GraviMediaPlayerTheme {
+        FoldersScreen(
+            rootUriString = null,
+            folderStack = emptyList(),
+            entries = emptyList(),
+            currentTrackCount = 0,
+            searchQuery = "",
+            sortMode = BrowserSortMode.FILENAME,
+            sortAscending = true,
+            showThumbnails = false,
+            isFolderActionRunning = false,
+            onChooseFolder = {},
+            onSearchQueryChanged = {},
+            onSortModeChanged = {},
+            onToggleSortDirection = {},
+            onOpenFolder = {},
+            onBack = {},
+            onPlayFolder = {},
+            onShuffleFolder = {},
+            onGraviShuffleFolder = {},
+            onExportFolder = {},
+            onPlayFile = {},
+        )
     }
 }

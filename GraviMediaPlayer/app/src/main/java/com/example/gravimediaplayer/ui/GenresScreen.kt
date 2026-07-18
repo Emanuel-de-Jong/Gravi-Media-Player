@@ -22,9 +22,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.gravimediaplayer.TagGroup
 import com.example.gravimediaplayer.formatTrackCount
+import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
 
 @Composable
 fun GenresScreen(
@@ -103,5 +105,22 @@ fun GenresScreen(
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun GenresScreenPreview() {
+    GraviMediaPlayerTheme {
+        GenresScreen(
+            rootUriString = null,
+            tagGroups = emptyList(),
+            searchQuery = "",
+            sortAscending = true,
+            onChooseFolder = {},
+            onSearchQueryChanged = {},
+            onToggleSortDirection = {},
+            onPlayTag = {},
+        )
     }
 }
