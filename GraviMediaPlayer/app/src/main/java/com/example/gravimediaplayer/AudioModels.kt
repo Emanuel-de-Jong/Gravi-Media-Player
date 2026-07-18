@@ -1,6 +1,7 @@
 package com.example.gravimediaplayer
 
 import android.net.Uri
+import androidx.core.net.toUri
 
 data class AudioItem(
     val uriString: String,
@@ -17,7 +18,7 @@ data class AudioItem(
     val lastModifiedMs: Long = 0,
 ) {
     val uri: Uri
-        get() = Uri.parse(uriString)
+        get() = uriString.toUri()
 
     val displayTitle: String
         get() = title.substringBeforeLast('.', title)

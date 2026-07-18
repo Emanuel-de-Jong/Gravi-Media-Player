@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import androidx.core.net.toUri
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -121,7 +122,7 @@ class LibraryRepository(private val context: Context) {
                     audioFile.folderPath,
                     audioFile.lastModifiedMs,
                     audioFile.sizeBytes,
-                    readGenreTags(Uri.parse(audioFile.uriString), genreSeparator),
+                    readGenreTags(audioFile.uriString.toUri(), genreSeparator),
                     audioFile.artworkUriString,
                 )
             }
@@ -152,26 +153,22 @@ class LibraryRepository(private val context: Context) {
         audioFiles.forEach { audioFile ->
             val cachedMetadata = metadataFilesByUri[audioFile.uriString]
             if (cachedMetadata?.matches(audioFile) != true) {
-                val metadata = readAudioMetadata(Uri.parse(audioFile.uriString))
-                metadataFilesByUri[audioFile.uriString] = if (metadata == null) {
-                    AudioMetadataCacheFile(
-                        audioFile.uriString,
-                        audioFile.lastModifiedMs,
-                        audioFile.sizeBytes,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                        null,
-                    )
-                } else {
-                    metadata.copy(
-                        uriString = audioFile.uriString,
-                        lastModifiedMs = audioFile.lastModifiedMs,
-                        sizeBytes = audioFile.sizeBytes,
-                    )
-                }
+                val metadata = readAudioMetadata(audioFile.uriString.toUri())
+                metadataFilesByUri[audioFile.uriString] = metadata?.copy(
+                    uriString = audioFile.uriString,
+                    lastModifiedMs = audioFile.lastModifiedMs,
+                    sizeBytes = audioFile.sizeBytes,
+                ) ?: AudioMetadataCacheFile(
+                    audioFile.uriString,
+                    audioFile.lastModifiedMs,
+                    audioFile.sizeBytes,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                )
                 metadataCacheChanged = true
             }
         }
@@ -196,7 +193,7 @@ class LibraryRepository(private val context: Context) {
                     audioFile.folderPath,
                     audioFile.lastModifiedMs,
                     audioFile.sizeBytes,
-                    readGenreTags(Uri.parse(audioFile.uriString), genreSeparator),
+                    readGenreTags(audioFile.uriString.toUri(), genreSeparator),
                     audioFile.artworkUriString,
                 )
             }
@@ -231,7 +228,7 @@ class LibraryRepository(private val context: Context) {
             val cachedMetadata = metadataFilesByUri[audioFile.uriString]
                 ?.takeIf { it.matches(audioFile) }
             val metadata =
-                cachedMetadata ?: readAudioMetadata(Uri.parse(audioFile.uriString))?.also {
+                cachedMetadata ?: readAudioMetadata(audioFile.uriString.toUri())?.also {
                     metadataFilesByUri[audioFile.uriString] = it.copy(
                         uriString = audioFile.uriString,
                         lastModifiedMs = audioFile.lastModifiedMs,
@@ -257,7 +254,7 @@ class LibraryRepository(private val context: Context) {
             uriString,
             title,
             folderPath,
-            genreCacheFile?.tags ?: genreSeparator?.let { readGenreTags(Uri.parse(uriString), it) }
+            genreCacheFile?.tags ?: genreSeparator?.let { readGenreTags(uriString.toUri(), it) }
             ?: emptyList(),
             artworkUriString,
             metadataCacheFile?.mimeType,
@@ -314,15 +311,6 @@ class LibraryRepository(private val context: Context) {
         ).sortedWith(compareBy<BrowserEntry> { !it.isDirectory }.thenBy { it.name.lowercase() })
     }
 
-    private fun loadMediaStoreAudioItems(
-        rootUriString: String,
-        readTags: Boolean
-    ): List<AudioItem>? {
-        return loadMediaStoreAudioFiles(rootUriString)?.let { audioFiles ->
-            buildAudioItems(rootUriString, audioFiles, if (readTags) ";" else null)
-        }
-    }
-
     private fun loadMediaStoreAudioFiles(rootUriString: String): List<AudioFileSnapshot>? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         if (!hasMediaStorePermission()) return null
@@ -332,11 +320,7 @@ class LibraryRepository(private val context: Context) {
             if (it.isBlank()) "" else "$it/"
         }
         val audioFiles = mutableListOf<AudioFileSnapshot>()
-        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        } else {
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        }
+        val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.DISPLAY_NAME,
@@ -394,7 +378,7 @@ class LibraryRepository(private val context: Context) {
     }
 
     private fun mediaStoreRootPath(rootUriString: String): String? {
-        val uri = Uri.parse(rootUriString)
+        val uri = rootUriString.toUri()
         val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
             ?: return null
         val parts = treeDocumentId.split(':', limit = 2)
@@ -411,17 +395,6 @@ class LibraryRepository(private val context: Context) {
         return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun collectAudioItems(
-        rootUri: Uri,
-        folderDocumentId: String,
-        folderPath: String,
-        readTags: Boolean
-    ): List<AudioItem> {
-        return collectAudioFiles(rootUri, folderDocumentId, folderPath).map { audioFile ->
-            audioFile.toAudioItem(if (readTags) ";" else null)
-        }
-    }
-
     private fun loadAudioFiles(rootUriString: String): List<AudioFileSnapshot> {
         audioFilesCache[rootUriString]?.let { return it }
 
@@ -431,7 +404,7 @@ class LibraryRepository(private val context: Context) {
             return it
         }
 
-        val rootUri = Uri.parse(rootUriString)
+        val rootUri = rootUriString.toUri()
         val folderDocumentId = findFolderDocumentId(rootUri, emptyList()) ?: return emptyList()
         val audioFiles = collectAudioFiles(rootUri, folderDocumentId, "")
         pruneAudioMetadataCache(rootUriString, audioFiles)
@@ -664,7 +637,7 @@ class LibraryRepository(private val context: Context) {
         if (albumId <= 0) return null
 
         return ContentUris.withAppendedId(
-            Uri.parse("content://media/external/audio/albumart"),
+            "content://media/external/audio/albumart".toUri(),
             albumId,
         ).toString()
     }

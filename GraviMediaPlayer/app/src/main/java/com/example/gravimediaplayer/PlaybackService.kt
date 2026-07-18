@@ -10,7 +10,6 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
-import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -22,12 +21,14 @@ import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 
 class PlaybackService : Service() {
@@ -73,6 +74,7 @@ class PlaybackService : Service() {
         handler.post(progressUpdater)
     }
 
+    @androidx.annotation.OptIn(UnstableApi::class)
     private fun buildPlayer(): ExoPlayer {
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -277,6 +279,8 @@ class PlaybackService : Service() {
             when (playbackState) {
                 Player.STATE_READY -> updatePlaybackState()
                 Player.STATE_ENDED -> handlePlaybackEnded()
+                Player.STATE_BUFFERING -> Unit
+                Player.STATE_IDLE -> Unit
             }
         }
 
@@ -470,7 +474,7 @@ class PlaybackService : Service() {
     private fun loadArtworkBitmap(artworkUriString: String?): Bitmap? {
         val uriString = artworkUriString ?: return null
         return runCatching {
-            contentResolver.openInputStream(Uri.parse(uriString))?.use { inputStream ->
+            contentResolver.openInputStream(uriString.toUri())?.use { inputStream ->
                 BitmapFactory.decodeStream(inputStream)
             }
         }.getOrNull()
@@ -503,11 +507,7 @@ class PlaybackService : Service() {
     }
 
     private fun pendingIntentFlags(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        } else {
-            PendingIntent.FLAG_UPDATE_CURRENT
-        }
+        return PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     }
 
     private fun createNotificationChannel() {

@@ -1,7 +1,6 @@
 package com.example.gravimediaplayer.ui
 
 import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.example.gravimediaplayer.AudioItem
 import com.example.gravimediaplayer.LoopMode
 import com.example.gravimediaplayer.PlayOrderMode
@@ -264,7 +264,7 @@ private fun ArtworkCard(artworkUriString: String?) {
     val artworkBitmap = remember(artworkUriString) {
         artworkUriString?.let { uriString ->
             runCatching {
-                context.contentResolver.openInputStream(Uri.parse(uriString))?.use { inputStream ->
+                context.contentResolver.openInputStream(uriString.toUri())?.use { inputStream ->
                     BitmapFactory.decodeStream(inputStream)
                 }
             }.getOrNull()

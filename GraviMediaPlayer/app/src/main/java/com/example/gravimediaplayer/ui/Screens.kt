@@ -1,7 +1,6 @@
 package com.example.gravimediaplayer.ui
 
 import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.example.gravimediaplayer.BrowserEntry
 import com.example.gravimediaplayer.BrowserSortMode
 import com.example.gravimediaplayer.GraviPickerSettings
@@ -127,7 +127,6 @@ fun FoldersScreen(
             SearchTextField(
                 value = searchQuery,
                 onValueChange = onSearchQueryChanged,
-                label = "Search",
                 modifier = Modifier.weight(1f),
             )
             BrowserSortModeSelector(sortMode, onSortModeChanged)
@@ -214,13 +213,12 @@ private fun CompactFolderButton(label: String, enabled: Boolean, onClick: () -> 
 private fun SearchTextField(
     value: String,
     onValueChange: (String) -> Unit,
-    label: String,
     modifier: Modifier = Modifier,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text(label) },
+        label = { Text("Search") },
         singleLine = true,
         trailingIcon = {
             if (value.isNotEmpty()) {
@@ -304,7 +302,6 @@ fun GenresScreen(
             SearchTextField(
                 value = searchQuery,
                 onValueChange = onSearchQueryChanged,
-                label = "Search",
                 modifier = Modifier.weight(1f),
             )
             SortDirectionButton(sortAscending, onToggleSortDirection)
@@ -534,7 +531,7 @@ private fun BrowserThumbnail(artworkUriString: String?) {
     val artworkBitmap = androidx.compose.runtime.remember(artworkUriString) {
         artworkUriString?.let { uriString ->
             runCatching {
-                context.contentResolver.openInputStream(Uri.parse(uriString))?.use { inputStream ->
+                context.contentResolver.openInputStream(uriString.toUri())?.use { inputStream ->
                     BitmapFactory.decodeStream(inputStream)
                 }
             }.getOrNull()

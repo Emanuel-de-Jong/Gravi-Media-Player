@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,8 +74,8 @@ fun GraviMediaPlayerApp() {
     var browserEntries by remember { mutableStateOf(emptyList<BrowserEntry>()) }
     var tagGroups by remember { mutableStateOf(emptyList<TagGroup>()) }
     var isGeneratingCache by remember { mutableStateOf(preferences.rootUriString != null) }
-    var libraryCacheVersion by remember { mutableStateOf(0) }
-    var cacheGenerationRequest by remember { mutableStateOf(0) }
+    var libraryCacheVersion by remember { mutableIntStateOf(0) }
+    var cacheGenerationRequest by remember { mutableIntStateOf(0) }
     var pendingPlaybackRequest by remember { mutableStateOf<PendingPlaybackRequest?>(null) }
     var playbackService by remember { mutableStateOf<PlaybackService?>(null) }
     var playbackSnapshot by remember { mutableStateOf(PlaybackSnapshot()) }
@@ -86,7 +87,7 @@ fun GraviMediaPlayerApp() {
     var graviPickerSettings by remember { mutableStateOf(preferences.graviPickerSettings) }
     var pendingPlaylistExport by remember { mutableStateOf<List<AudioItem>?>(null) }
     var isFolderActionRunning by remember { mutableStateOf(false) }
-    var mediaLibraryPermissionVersion by remember { mutableStateOf(0) }
+    var mediaLibraryPermissionVersion by remember { mutableIntStateOf(0) }
 
     val folderPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->

@@ -1,6 +1,7 @@
 package com.example.gravimediaplayer
 
 import android.content.Context
+import androidx.core.content.edit
 
 class PlayerPreferences(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -8,31 +9,31 @@ class PlayerPreferences(context: Context) {
     var rootUriString: String?
         get() = preferences.getString(KEY_ROOT_URI, null)
         set(value) {
-            preferences.edit().putString(KEY_ROOT_URI, value).apply()
+            preferences.edit { putString(KEY_ROOT_URI, value) }
         }
 
     var playOrderMode: PlayOrderMode
         get() = loadMode(KEY_PLAY_ORDER_MODE, PlayOrderMode.IN_ORDER)
         set(value) {
-            preferences.edit().putString(KEY_PLAY_ORDER_MODE, value.name).apply()
+            preferences.edit { putString(KEY_PLAY_ORDER_MODE, value.name) }
         }
 
     var loopMode: LoopMode
         get() = loadMode(KEY_LOOP_MODE, LoopMode.OFF)
         set(value) {
-            preferences.edit().putString(KEY_LOOP_MODE, value.name).apply()
+            preferences.edit { putString(KEY_LOOP_MODE, value.name) }
         }
 
     var genreSeparator: String
         get() = preferences.getString(KEY_GENRE_SEPARATOR, ";").orEmpty().ifBlank { ";" }
         set(value) {
-            preferences.edit().putString(KEY_GENRE_SEPARATOR, value.ifBlank { ";" }).apply()
+            preferences.edit { putString(KEY_GENRE_SEPARATOR, value.ifBlank { ";" }) }
         }
 
     var showBrowserThumbnails: Boolean
         get() = preferences.getBoolean(KEY_SHOW_BROWSER_THUMBNAILS, false)
         set(value) {
-            preferences.edit().putBoolean(KEY_SHOW_BROWSER_THUMBNAILS, value).apply()
+            preferences.edit { putBoolean(KEY_SHOW_BROWSER_THUMBNAILS, value) }
         }
 
     var graviPickerSettings: GraviPickerSettings
@@ -52,27 +53,27 @@ class PlayerPreferences(context: Context) {
         ).sanitized()
         set(value) {
             val safeValue = value.sanitized()
-            preferences.edit()
-                .putInt(KEY_GRAVI_DEPTH, safeValue.depth)
-                .putBoolean(KEY_GRAVI_PARENT_ODDS, safeValue.parentOdds)
-                .putBoolean(KEY_GRAVI_CHILD_ODDS, safeValue.childOdds)
-                .putInt(KEY_GRAVI_EVEN_ODDS_MIN_FILE_COUNT, safeValue.evenOddsMinFileCount)
-                .putFloat(KEY_GRAVI_LESS_LIKELY_DIVISOR, safeValue.lessLikelyDivisor)
-                .putInt(KEY_GRAVI_QUEUE_ENTRIES, safeValue.queueEntries)
-                .putString(
+            preferences.edit {
+                putInt(KEY_GRAVI_DEPTH, safeValue.depth)
+                putBoolean(KEY_GRAVI_PARENT_ODDS, safeValue.parentOdds)
+                putBoolean(KEY_GRAVI_CHILD_ODDS, safeValue.childOdds)
+                putInt(KEY_GRAVI_EVEN_ODDS_MIN_FILE_COUNT, safeValue.evenOddsMinFileCount)
+                putFloat(KEY_GRAVI_LESS_LIKELY_DIVISOR, safeValue.lessLikelyDivisor)
+                putInt(KEY_GRAVI_QUEUE_ENTRIES, safeValue.queueEntries)
+                putString(
                     KEY_GRAVI_EDGE_CASE_FOLDER_DEPTHS,
                     formatEdgeCaseFolderDepths(safeValue.edgeCaseFolderDepths)
                 )
-                .putString(
+                putString(
                     KEY_GRAVI_BLACKLIST_FOLDERS,
                     safeValue.blacklistFolders.sorted().joinToString("\n")
                 )
-                .apply()
+            }
         }
 
     fun resetSettingsExceptRootUri() {
         val rootUri = rootUriString
-        preferences.edit().clear().apply()
+        preferences.edit { clear() }
         rootUriString = rootUri
     }
 
