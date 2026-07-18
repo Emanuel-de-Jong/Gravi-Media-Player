@@ -18,12 +18,13 @@ class GraviQueuePicker(
             .flatMap { it.items }
             .distinctBy { it.audioItem.uriString }
             .sortedBy { it.audioItem.folderPath + "/" + it.audioItem.title }
-        var remainingUriStrings = allItems.map { it.audioItem.uriString }.toSet()
+        val allUriStrings = allItems.map { it.audioItem.uriString }
+        val remainingUriStrings = allUriStrings.toMutableSet()
         val selectedItems = mutableListOf<AudioItem>()
 
         while (selectedItems.size < safeSettings.queueEntries) {
             if (remainingUriStrings.isEmpty()) {
-                remainingUriStrings = allItems.map { it.audioItem.uriString }.toSet()
+                remainingUriStrings.addAll(allUriStrings)
             }
 
             val eligibleCategoryEntries = categoryEntries.filter { categoryEntry ->
@@ -35,7 +36,7 @@ class GraviQueuePicker(
             val selectedItem = pickWeighted(
                 selectedCategory.items.filter { it.audioItem.uriString in remainingUriStrings }
             ) { selectedCategory.itemWeightsByUri[it.audioItem.uriString] ?: 1.0 }
-            remainingUriStrings = remainingUriStrings - selectedItem.audioItem.uriString
+            remainingUriStrings.remove(selectedItem.audioItem.uriString)
             selectedItems.add(selectedItem.audioItem)
         }
 
@@ -97,19 +98,13 @@ class GraviQueuePicker(
         }
 
         val categoryFolderSet = categoryFolders.toSet()
+        val categoryItemsByFolder = buildCategoryItemsByFolder(
+            pickerItems,
+            categoryFolderSet,
+        )
         var categoryEntries = categoryFolders.mapNotNull { categoryFolder ->
-            val categoryItems = pickerItems.filter { pickerItem ->
-                if (!isSameOrDescendant(pickerItem.folderPath, categoryFolder)) return@filter false
-                val blockingCategory = parentFoldersBetween(pickerItem.folderPath, categoryFolder)
-                    .firstOrNull { parentFolder ->
-                        parentFolder in categoryFolderSet &&
-                                parentFolder.folderParts().size <= resolveTargetDepth(
-                            parentFolder,
-                            settings
-                        )
-                    }
-                blockingCategory == null
-            }.sortedBy { it.audioItem.folderPath + "/" + it.audioItem.title }
+            val categoryItems = categoryItemsByFolder.getOrDefault(categoryFolder, emptyList())
+                .sortedBy { it.audioItem.folderPath + "/" + it.audioItem.title }
 
             if (categoryItems.isEmpty()) return@mapNotNull null
 
@@ -152,11 +147,30 @@ class GraviQueuePicker(
         folderPaths: List<String>,
         itemsByFolder: Map<String, List<GraviPickerItem>>,
     ): Map<String, Int> {
-        return folderPaths.associateWith { folderPath ->
-            itemsByFolder.entries.sumOf { (itemFolder, folderItems) ->
-                if (isSameOrDescendant(itemFolder, folderPath)) folderItems.size else 0
+        val folderPathSet = folderPaths.toSet()
+        val descendantCountByFolder = folderPaths.associateWith { 0 }.toMutableMap()
+        itemsByFolder.forEach { (itemFolder, folderItems) ->
+            foldersFromChildToParent(itemFolder, "").forEach { parentFolder ->
+                if (parentFolder in folderPathSet) {
+                    descendantCountByFolder[parentFolder] =
+                        descendantCountByFolder.getOrDefault(parentFolder, 0) + folderItems.size
+                }
             }
         }
+        return descendantCountByFolder
+    }
+
+    private fun buildCategoryItemsByFolder(
+        pickerItems: List<GraviPickerItem>,
+        categoryFolderSet: Set<String>,
+    ): Map<String, List<GraviPickerItem>> {
+        val categoryItemsByFolder = mutableMapOf<String, MutableList<GraviPickerItem>>()
+        pickerItems.forEach { pickerItem ->
+            val categoryFolder = foldersFromChildToParent(pickerItem.folderPath, "")
+                .firstOrNull { it in categoryFolderSet } ?: return@forEach
+            categoryItemsByFolder.getOrPut(categoryFolder) { mutableListOf() } += pickerItem
+        }
+        return categoryItemsByFolder
     }
 
     private fun buildItemWeights(
@@ -253,24 +267,6 @@ class GraviQueuePicker(
 
     private fun isBlacklisted(folderPath: String, blacklistFolders: Set<String>): Boolean {
         return foldersFromChildToParent(folderPath, "").any { it in blacklistFolders }
-    }
-
-    private fun isSameOrDescendant(folderPath: String, parentFolderPath: String): Boolean {
-        val normalizedFolderPath = folderPath.normalizedFolderPath()
-        val normalizedParentFolderPath = parentFolderPath.normalizedFolderPath()
-        return normalizedFolderPath == normalizedParentFolderPath ||
-                normalizedParentFolderPath.isBlank() ||
-                normalizedFolderPath.startsWith("$normalizedParentFolderPath/")
-    }
-
-    private fun parentFoldersBetween(folderPath: String, parentFolderPath: String): List<String> {
-        val folderParts = folderPath.folderParts()
-        val parentParts = parentFolderPath.folderParts()
-        if (folderParts.size <= parentParts.size) return emptyList()
-
-        return (parentParts.size + 1 until folderParts.size).map { index ->
-            folderParts.take(index).joinToString("/")
-        }
     }
 
     private fun foldersFromChildToParent(
