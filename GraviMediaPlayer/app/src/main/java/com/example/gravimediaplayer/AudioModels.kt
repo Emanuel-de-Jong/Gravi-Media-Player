@@ -50,7 +50,7 @@ data class PlaybackSnapshot(
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
     val playOrderMode: PlayOrderMode = PlayOrderMode.IN_ORDER,
-    val loopMode: LoopMode = LoopMode.OFF,
+    val loopMode: LoopMode = LoopMode.QUEUE,
     val positionMs: Int = 0,
     val durationMs: Int = 0,
     val audioInfoText: String? = null,

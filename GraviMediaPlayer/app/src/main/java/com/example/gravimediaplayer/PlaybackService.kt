@@ -5,10 +5,15 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.os.Binder
 import android.os.Build
@@ -34,12 +39,14 @@ import androidx.media3.exoplayer.ExoPlayer
 class PlaybackService : Service() {
     private val binder = PlaybackBinder()
     private val handler = Handler(Looper.getMainLooper())
+    private lateinit var audioManager: AudioManager
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSessionCompat? = null
     private var listener: ((PlaybackSnapshot) -> Unit)? = null
     private var snapshot = PlaybackSnapshot()
     private var shuffledIndexes = emptyList<Int>()
     private var shuffledPosition = -1
+    private var connectedBluetoothOutputDeviceIds = emptySet<Int>()
 
     private val progressUpdater = object : Runnable {
         override fun run() {
@@ -58,8 +65,35 @@ class PlaybackService : Service() {
         fun getService(): PlaybackService = this@PlaybackService
     }
 
+    private val audioDeviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
+            connectedBluetoothOutputDeviceIds = currentBluetoothOutputDeviceIds()
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
+            val removedBluetoothDeviceIds = removedDevices
+                .filter { it.isBluetoothOutputDevice() }
+                .map { it.id }
+                .toSet()
+            val hadBluetoothOutput = connectedBluetoothOutputDeviceIds.isNotEmpty()
+            connectedBluetoothOutputDeviceIds = currentBluetoothOutputDeviceIds()
+            if (hadBluetoothOutput && removedBluetoothDeviceIds.isNotEmpty()) {
+                pauseForBluetoothOutputLoss()
+            }
+        }
+    }
+
+    private val becomingNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                pauseForBluetoothOutputLoss()
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        audioManager = getSystemService(AudioManager::class.java)
         createNotificationChannel()
         player = buildPlayer()
         player?.addListener(playbackListener)
@@ -71,6 +105,12 @@ class PlaybackService : Service() {
             setCallback(mediaSessionCallback)
             isActive = true
         }
+        connectedBluetoothOutputDeviceIds = currentBluetoothOutputDeviceIds()
+        audioManager.registerAudioDeviceCallback(audioDeviceCallback, handler)
+        registerReceiver(
+            becomingNoisyReceiver,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        )
         handler.post(progressUpdater)
     }
 
@@ -111,6 +151,8 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(progressUpdater)
+        audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
+        unregisterReceiver(becomingNoisyReceiver)
         player?.release()
         mediaSession?.release()
         super.onDestroy()
@@ -176,8 +218,7 @@ class PlaybackService : Service() {
     fun togglePlayPause() {
         val currentPlayer = player ?: return
         if (currentPlayer.isPlaying) {
-            currentPlayer.pause()
-            snapshot = snapshot.copy(isPlaying = false, positionMs = safePosition(currentPlayer))
+            pausePlayback(currentPlayer)
         } else {
             currentPlayer.play()
             snapshot = snapshot.copy(isPlaying = true, positionMs = safePosition(currentPlayer))
@@ -272,6 +313,21 @@ class PlaybackService : Service() {
         notifyListener()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun pausePlayback(currentPlayer: Player) {
+        currentPlayer.pause()
+        snapshot = snapshot.copy(isPlaying = false, positionMs = safePosition(currentPlayer))
+        updateMediaSession()
+        updateForegroundNotification()
+        notifyListener()
+    }
+
+    private fun pauseForBluetoothOutputLoss() {
+        val currentPlayer = player ?: return
+        if (!currentPlayer.isPlaying) return
+
+        pausePlayback(currentPlayer)
     }
 
     private val playbackListener = object : Player.Listener {
@@ -521,6 +577,22 @@ class PlaybackService : Service() {
 
     private fun notifyListener() {
         listener?.invoke(snapshot)
+    }
+
+    private fun currentBluetoothOutputDeviceIds(): Set<Int> {
+        return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .filter { it.isBluetoothOutputDevice() }
+            .map { it.id }
+            .toSet()
+    }
+
+    private fun AudioDeviceInfo.isBluetoothOutputDevice(): Boolean {
+        if (!isSink) return false
+
+        return type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+                type == AudioDeviceInfo.TYPE_BLE_BROADCAST
     }
 
     private fun safePosition(player: Player): Int {

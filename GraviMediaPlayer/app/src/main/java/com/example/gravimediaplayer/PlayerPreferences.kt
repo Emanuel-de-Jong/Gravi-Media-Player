@@ -19,7 +19,7 @@ class PlayerPreferences(context: Context) {
         }
 
     var loopMode: LoopMode
-        get() = loadMode(KEY_LOOP_MODE, LoopMode.OFF)
+        get() = loadMode(KEY_LOOP_MODE, LoopMode.QUEUE)
         set(value) {
             preferences.edit { putString(KEY_LOOP_MODE, value.name) }
         }
