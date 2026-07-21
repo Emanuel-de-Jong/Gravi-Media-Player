@@ -31,10 +31,12 @@ import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import com.example.gravimediaplayer.AudioItem
 import com.example.gravimediaplayer.BrowserEntry
 import com.example.gravimediaplayer.BrowserSortMode
+import com.example.gravimediaplayer.DefaultStartPlayOrder
 import com.example.gravimediaplayer.GraviQueuePicker
 import com.example.gravimediaplayer.LibraryRepository
 import com.example.gravimediaplayer.PendingPlaybackRequest
-import com.example.gravimediaplayer.PlayOrderMode
+import com.example.gravimediaplayer.QueueOrder
+import com.example.gravimediaplayer.QueueType
 import com.example.gravimediaplayer.PlaybackService
 import com.example.gravimediaplayer.PlaybackSnapshot
 import com.example.gravimediaplayer.PlayerPreferences
@@ -42,7 +44,6 @@ import com.example.gravimediaplayer.TagGroup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.random.Random
 
 @PreviewScreenSizes
 @Composable
@@ -69,7 +70,9 @@ fun GraviMediaPlayerApp() {
     var pendingPlaybackRequest by remember { mutableStateOf<PendingPlaybackRequest?>(null) }
     var playbackService by remember { mutableStateOf<PlaybackService?>(null) }
     var playbackSnapshot by remember { mutableStateOf(PlaybackSnapshot()) }
-    var savedPlayOrderMode by rememberSaveable { mutableStateOf(preferences.playOrderMode) }
+    var defaultStartPlayOrder by rememberSaveable {
+        mutableStateOf(preferences.defaultStartPlayOrder)
+    }
     var savedLoopMode by rememberSaveable { mutableStateOf(preferences.loopMode) }
     var genreSeparator by rememberSaveable { mutableStateOf(preferences.genreSeparator) }
     var appliedGenreSeparator by rememberSaveable { mutableStateOf(preferences.genreSeparator) }
@@ -118,15 +121,17 @@ fun GraviMediaPlayerApp() {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                 val boundService = (service as PlaybackService.PlaybackBinder).getService()
                 playbackService = boundService
-                boundService.setPlayOrderMode(savedPlayOrderMode)
                 boundService.setLoopMode(savedLoopMode)
                 playbackSnapshot = boundService.getSnapshot()
                 boundService.setListener { playbackSnapshot = it }
                 pendingPlaybackRequest?.let {
-                    savedPlayOrderMode = it.playOrderMode
-                    preferences.playOrderMode = it.playOrderMode
-                    boundService.setPlayOrderMode(it.playOrderMode)
-                    boundService.playQueue(it.queue, it.startIndex, it.queueTitle)
+                    boundService.playQueue(
+                        it.queue,
+                        it.startIndex,
+                        it.queueType,
+                        it.queueName,
+                        it.queueOrder,
+                    )
                     pendingPlaybackRequest = null
                 }
             }
@@ -233,11 +238,7 @@ fun GraviMediaPlayerApp() {
                     onPrevious = { playbackService?.playPrevious() },
                     onSeek = { playbackService?.seekTo(it) },
                     onPlayQueueIndex = { playbackService?.playQueueIndex(it) },
-                    onPlayOrderModeChanged = {
-                        savedPlayOrderMode = it
-                        preferences.playOrderMode = it
-                        playbackService?.setPlayOrderMode(it)
-                    },
+                    onShuffleQueue = { playbackService?.shuffleQueue() },
                     onLoopModeChanged = {
                         savedLoopMode = it
                         preferences.loopMode = it
@@ -301,15 +302,14 @@ fun GraviMediaPlayerApp() {
                                                     selectedFolderStack
                                                 )
                                             }
-                                            val queueTitle =
-                                                folderQueueTitle(selectedFolderStack)
                                             pendingPlaybackRequest = requestPlayback(
                                                 context,
                                                 playbackService,
                                                 queue,
                                                 0,
-                                                queueTitle,
-                                                PlayOrderMode.IN_ORDER,
+                                                QueueType.FOLDER,
+                                                folderQueueName(selectedFolderStack),
+                                                QueueOrder.ORDERED,
                                             )
                                         } finally {
                                             isFolderActionRunning = false
@@ -332,23 +332,14 @@ fun GraviMediaPlayerApp() {
                                                     selectedGraviPickerSettings.queueEntries,
                                                 )
                                             }
-                                            val queueTitle =
-                                                "Shuffle: ${
-                                                    folderDisplayTitle(
-                                                        selectedFolderStack
-                                                    )
-                                                }"
                                             pendingPlaybackRequest = requestPlayback(
                                                 context,
                                                 playbackService,
                                                 queue,
                                                 0,
-                                                queueTitle,
-                                                PlayOrderMode.IN_ORDER,
-                                                onPlayOrderModeChanged = {
-                                                    savedPlayOrderMode = it
-                                                    preferences.playOrderMode = it
-                                                },
+                                                QueueType.FOLDER,
+                                                folderQueueName(selectedFolderStack),
+                                                QueueOrder.SHUFFLED,
                                             )
                                         } finally {
                                             isFolderActionRunning = false
@@ -372,23 +363,14 @@ fun GraviMediaPlayerApp() {
                                                     selectedFolderStack.joinToString("/"),
                                                 )
                                             }
-                                            val queueTitle =
-                                                "Gravi shuffle: ${
-                                                    folderDisplayTitle(
-                                                        selectedFolderStack
-                                                    )
-                                                }"
                                             pendingPlaybackRequest = requestPlayback(
                                                 context,
                                                 playbackService,
                                                 queue,
                                                 0,
-                                                queueTitle,
-                                                PlayOrderMode.GRAVI_SHUFFLE,
-                                                onPlayOrderModeChanged = {
-                                                    savedPlayOrderMode = it
-                                                    preferences.playOrderMode = it
-                                                },
+                                                QueueType.FOLDER,
+                                                folderQueueName(selectedFolderStack),
+                                                QueueOrder.GRAVI_SHUFFLED,
                                             )
                                         } finally {
                                             isFolderActionRunning = false
@@ -439,16 +421,28 @@ fun GraviMediaPlayerApp() {
                                             val startIndex =
                                                 queue.indexOfFirst { it.uriString == selectedItem.uriString }
                                                     .coerceAtLeast(0)
-                                            val queueTitle = folderQueueTitle(
+                                            val queueName = folderQueueName(
                                                 if (folderSearchQuery.isBlank()) folderStack else selectedFolderStack
                                             )
+                                            val playbackQueue = if (
+                                                defaultStartPlayOrder == DefaultStartPlayOrder.SHUFFLED
+                                            ) {
+                                                queue.shuffledWithCurrentItemFirst(selectedItem)
+                                            } else {
+                                                queue
+                                            }
                                             pendingPlaybackRequest = requestPlayback(
                                                 context,
                                                 playbackService,
-                                                queue,
-                                                startIndex,
-                                                queueTitle,
-                                                savedPlayOrderMode,
+                                                playbackQueue,
+                                                if (defaultStartPlayOrder == DefaultStartPlayOrder.SHUFFLED) 0 else startIndex,
+                                                QueueType.FOLDER,
+                                                queueName,
+                                                if (defaultStartPlayOrder == DefaultStartPlayOrder.SHUFFLED) {
+                                                    QueueOrder.SHUFFLED
+                                                } else {
+                                                    QueueOrder.ORDERED
+                                                },
                                             )
                                         } finally {
                                             isFolderActionRunning = false
@@ -468,28 +462,40 @@ fun GraviMediaPlayerApp() {
                                     genreSortAscending = !genreSortAscending
                                 },
                                 onPlayTag = { tagGroup ->
-                                    val startIndex =
-                                        if (savedPlayOrderMode == PlayOrderMode.SHUFFLE) Random.nextInt(
-                                            tagGroup.items.size
-                                        ) else 0
-                                    val queueTitle = "Genre: ${tagGroup.name}"
+                                    val playbackQueue = if (
+                                        defaultStartPlayOrder == DefaultStartPlayOrder.SHUFFLED
+                                    ) {
+                                        tagGroup.items.shuffled()
+                                    } else {
+                                        tagGroup.items
+                                    }
                                     pendingPlaybackRequest = requestPlayback(
                                         context,
                                         playbackService,
-                                        tagGroup.items,
-                                        startIndex,
-                                        queueTitle,
-                                        savedPlayOrderMode,
+                                        playbackQueue,
+                                        0,
+                                        QueueType.GENRE,
+                                        tagGroup.name,
+                                        if (defaultStartPlayOrder == DefaultStartPlayOrder.SHUFFLED) {
+                                            QueueOrder.SHUFFLED
+                                        } else {
+                                            QueueOrder.ORDERED
+                                        },
                                     )
                                 },
                             )
 
                             AppDestinations.SETTINGS -> SettingsScreen(
                                 rootUriString = rootUriString,
+                                defaultStartPlayOrder = defaultStartPlayOrder,
                                 genreSeparator = genreSeparator,
                                 showBrowserThumbnails = showBrowserThumbnails,
                                 graviPickerSettings = graviPickerSettings,
                                 onChooseFolder = { folderPicker.launch(null) },
+                                onDefaultStartPlayOrderChanged = {
+                                    defaultStartPlayOrder = it
+                                    preferences.defaultStartPlayOrder = it
+                                },
                                 onGenreSeparatorChanged = {
                                     genreSeparator = it
                                 },
@@ -510,13 +516,12 @@ fun GraviMediaPlayerApp() {
                                 },
                                 onResetSettings = {
                                     preferences.resetSettingsExceptRootUri()
-                                    savedPlayOrderMode = preferences.playOrderMode
+                                    defaultStartPlayOrder = preferences.defaultStartPlayOrder
                                     savedLoopMode = preferences.loopMode
                                     genreSeparator = preferences.genreSeparator
                                     appliedGenreSeparator = preferences.genreSeparator
                                     showBrowserThumbnails = preferences.showBrowserThumbnails
                                     graviPickerSettings = preferences.graviPickerSettings
-                                    playbackService?.setPlayOrderMode(savedPlayOrderMode)
                                     playbackService?.setLoopMode(savedLoopMode)
                                     tagGroups = emptyList()
                                     cacheGenerationRequest++
@@ -577,16 +582,8 @@ private fun browserSortKey(entry: BrowserEntry, sortMode: BrowserSortMode): Comp
     }
 }
 
-private fun folderQueueTitle(folderStack: List<String>): String {
-    return if (folderStack.isEmpty()) "Folder: Root music folder" else "Folder: ${
-        folderStack.joinToString(
-            " / "
-        )
-    }"
-}
-
-private fun folderDisplayTitle(folderStack: List<String>): String {
-    return if (folderStack.isEmpty()) "Root music folder" else folderStack.joinToString(" / ")
+private fun folderQueueName(folderStack: List<String>): String {
+    return if (folderStack.isEmpty()) "Root" else folderStack.joinToString(" / ")
 }
 
 private fun playlistFileName(folderStack: List<String>): String {
@@ -618,18 +615,22 @@ private fun requestPlayback(
     playbackService: PlaybackService?,
     queue: List<AudioItem>,
     startIndex: Int,
-    queueTitle: String,
-    playOrderMode: PlayOrderMode,
-    onPlayOrderModeChanged: ((PlayOrderMode) -> Unit)? = null,
+    queueType: QueueType,
+    queueName: String,
+    queueOrder: QueueOrder,
 ): PendingPlaybackRequest? {
     PlaybackService.start(context)
-    onPlayOrderModeChanged?.invoke(playOrderMode)
-    playbackService?.setPlayOrderMode(playOrderMode)
-    playbackService?.playQueue(queue, startIndex, queueTitle)
+    playbackService?.playQueue(queue, startIndex, queueType, queueName, queueOrder)
     return if (playbackService == null) PendingPlaybackRequest(
         queue,
         startIndex,
-        queueTitle,
-        playOrderMode,
+        queueType,
+        queueName,
+        queueOrder,
     ) else null
+}
+
+private fun List<AudioItem>.shuffledWithCurrentItemFirst(currentItem: AudioItem): List<AudioItem> {
+    val remainingItems = filter { it.uriString != currentItem.uriString }.shuffled()
+    return listOf(currentItem) + remainingItems
 }

@@ -12,10 +12,10 @@ class PlayerPreferences(context: Context) {
             preferences.edit { putString(KEY_ROOT_URI, value) }
         }
 
-    var playOrderMode: PlayOrderMode
-        get() = loadMode(KEY_PLAY_ORDER_MODE, PlayOrderMode.IN_ORDER)
+    var defaultStartPlayOrder: DefaultStartPlayOrder
+        get() = loadMode(KEY_DEFAULT_START_PLAY_ORDER, DefaultStartPlayOrder.ORDERED)
         set(value) {
-            preferences.edit { putString(KEY_PLAY_ORDER_MODE, value.name) }
+            preferences.edit { putString(KEY_DEFAULT_START_PLAY_ORDER, value.name) }
         }
 
     var loopMode: LoopMode
@@ -115,7 +115,7 @@ class PlayerPreferences(context: Context) {
     companion object {
         private const val PREFERENCES_NAME = "gravi_media_player"
         private const val KEY_ROOT_URI = "root_uri"
-        private const val KEY_PLAY_ORDER_MODE = "play_order_mode"
+        private const val KEY_DEFAULT_START_PLAY_ORDER = "default_start_play_order"
         private const val KEY_LOOP_MODE = "loop_mode"
         private const val KEY_GENRE_SEPARATOR = "genre_separator"
         private const val KEY_SHOW_BROWSER_THUMBNAILS = "show_browser_thumbnails"

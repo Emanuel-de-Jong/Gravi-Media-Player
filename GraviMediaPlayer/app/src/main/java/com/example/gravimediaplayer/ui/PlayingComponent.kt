@@ -52,9 +52,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.example.gravimediaplayer.AudioItem
 import com.example.gravimediaplayer.LoopMode
-import com.example.gravimediaplayer.PlayOrderMode
 import com.example.gravimediaplayer.PlaybackSnapshot
 import com.example.gravimediaplayer.formatTime
+import com.example.gravimediaplayer.queueDisplayTitle
 import com.example.gravimediaplayer.queueContext
 import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
 
@@ -83,7 +83,7 @@ fun MiniPlayer(
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    snapshot.queueTitle ?: item.folderPath.ifBlank { "Root music folder" },
+                    snapshot.queueDisplayTitle(),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -112,7 +112,7 @@ fun PlayScreen(
     onPrevious: () -> Unit,
     onSeek: (Int) -> Unit,
     onPlayQueueIndex: (Int) -> Unit,
-    onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
+    onShuffleQueue: () -> Unit,
     onLoopModeChanged: (LoopMode) -> Unit,
 ) {
     val item = snapshot.currentItem
@@ -147,7 +147,7 @@ fun PlayScreen(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = snapshot.queueTitle ?: item?.folderPath ?: "Select a file or folder to begin.",
+            text = snapshot.queueDisplayTitle(),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -196,7 +196,7 @@ fun PlayScreen(
         }
         PlaybackModeRow(
             snapshot = snapshot,
-            onPlayOrderModeChanged = onPlayOrderModeChanged,
+            onShuffleQueue = onShuffleQueue,
             onLoopModeChanged = onLoopModeChanged,
         )
         if (snapshot.errorMessage != null) {
@@ -293,41 +293,29 @@ private fun ArtworkCard(artworkUriString: String?) {
 @Composable
 private fun PlaybackModeRow(
     snapshot: PlaybackSnapshot,
-    onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
+    onShuffleQueue: () -> Unit,
     onLoopModeChanged: (LoopMode) -> Unit,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PlayOrderModeSelector(snapshot.playOrderMode, onPlayOrderModeChanged)
+        ShuffleQueueButton(
+            enabled = snapshot.queue.size > 1,
+            onShuffleQueue = onShuffleQueue,
+        )
         LoopModeSelector(snapshot.loopMode, onLoopModeChanged)
     }
 }
 
 @Composable
-private fun PlayOrderModeSelector(
-    playOrderMode: PlayOrderMode,
-    onPlayOrderModeChanged: (PlayOrderMode) -> Unit,
+private fun ShuffleQueueButton(
+    enabled: Boolean,
+    onShuffleQueue: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-
-    Box {
-        TextButton(onClick = { expanded = true }) {
-            Icon(Icons.Filled.Shuffle, contentDescription = null)
-            Text(playOrderMode.label)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            PlayOrderMode.entries.forEach { mode ->
-                DropdownMenuItem(
-                    text = { Text(mode.label) },
-                    onClick = {
-                        expanded = false
-                        onPlayOrderModeChanged(mode)
-                    },
-                )
-            }
-        }
+    TextButton(onClick = onShuffleQueue, enabled = enabled) {
+        Icon(Icons.Filled.Shuffle, contentDescription = null)
+        Text("Shuffle")
     }
 }
 
@@ -449,7 +437,7 @@ fun PlayScreenPreview() {
             onPrevious = {},
             onSeek = {},
             onPlayQueueIndex = {},
-            onPlayOrderModeChanged = {},
+            onShuffleQueue = {},
             onLoopModeChanged = {},
         )
     }

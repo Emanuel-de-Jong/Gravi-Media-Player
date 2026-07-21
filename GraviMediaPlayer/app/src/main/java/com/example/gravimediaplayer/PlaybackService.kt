@@ -44,8 +44,6 @@ class PlaybackService : Service() {
     private var mediaSession: MediaSessionCompat? = null
     private var listener: ((PlaybackSnapshot) -> Unit)? = null
     private var snapshot = PlaybackSnapshot()
-    private var shuffledIndexes = emptyList<Int>()
-    private var shuffledPosition = -1
     private var connectedBluetoothOutputDeviceIds = emptySet<Int>()
 
     private val progressUpdater = object : Runnable {
@@ -195,7 +193,13 @@ class PlaybackService : Service() {
 
     fun getSnapshot(): PlaybackSnapshot = snapshot
 
-    fun playQueue(queue: List<AudioItem>, startIndex: Int, queueTitle: String) {
+    fun playQueue(
+        queue: List<AudioItem>,
+        startIndex: Int,
+        queueType: QueueType,
+        queueName: String,
+        queueOrder: QueueOrder,
+    ) {
         if (queue.isEmpty()) {
             snapshot = snapshot.copy(errorMessage = "No audio files found.")
             notifyListener()
@@ -205,13 +209,14 @@ class PlaybackService : Service() {
         val safeIndex = startIndex.coerceIn(queue.indices)
         snapshot = snapshot.copy(
             queue = queue,
-            queueTitle = queueTitle,
+            queueType = queueType,
+            queueName = queueName,
             currentIndex = safeIndex,
+            queueOrder = queueOrder,
             positionMs = 0,
             durationMs = 0,
             errorMessage = null,
         )
-        rebuildShuffleOrder(safeIndex)
         playIndex(safeIndex)
     }
 
@@ -258,9 +263,19 @@ class PlaybackService : Service() {
         notifyListener()
     }
 
-    fun setPlayOrderMode(mode: PlayOrderMode) {
-        snapshot = snapshot.copy(playOrderMode = mode)
-        rebuildShuffleOrder(snapshot.currentIndex)
+    fun shuffleQueue() {
+        if (snapshot.queue.isEmpty()) return
+
+        val currentQueue = snapshot.queue
+        val currentItem = currentQueue.getOrNull(snapshot.currentIndex) ?: return
+        val shuffledQueue = listOf(currentItem) + currentQueue
+            .filterIndexed { index, _ -> index != snapshot.currentIndex }
+            .shuffled()
+        snapshot = snapshot.copy(
+            queue = shuffledQueue,
+            currentIndex = 0,
+            queueOrder = QueueOrder.SHUFFLED,
+        )
         notifyListener()
     }
 
@@ -290,9 +305,6 @@ class PlaybackService : Service() {
             audioInfoText = playbackItem.compactAudioInfo(),
             errorMessage = null
         )
-        if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE && index in shuffledIndexes) {
-            shuffledPosition = shuffledIndexes.indexOf(index)
-        }
         mediaSession?.isActive = true
         updateMediaSession()
         updateForegroundNotification()
@@ -304,11 +316,9 @@ class PlaybackService : Service() {
         player?.clearMediaItems()
         mediaSession?.isActive = false
         snapshot = PlaybackSnapshot(
-            playOrderMode = snapshot.playOrderMode,
+            queueOrder = snapshot.queueOrder,
             loopMode = snapshot.loopMode,
         )
-        shuffledIndexes = emptyList()
-        shuffledPosition = -1
         updateMediaSession()
         notifyListener()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -381,22 +391,6 @@ class PlaybackService : Service() {
     private fun getNextIndex(): Int? {
         if (snapshot.queue.isEmpty()) return null
 
-        if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE) {
-            if (shuffledIndexes.isEmpty()) rebuildShuffleOrder(snapshot.currentIndex)
-            val nextPosition = shuffledPosition + 1
-            if (nextPosition in shuffledIndexes.indices) {
-                shuffledPosition = nextPosition
-                return shuffledIndexes[shuffledPosition]
-            }
-            return if (snapshot.loopMode == LoopMode.QUEUE) {
-                rebuildShuffleOrder(snapshot.currentIndex)
-                shuffledPosition = 0
-                shuffledIndexes.firstOrNull()
-            } else {
-                null
-            }
-        }
-
         val nextIndex = snapshot.currentIndex + 1
         return when {
             nextIndex in snapshot.queue.indices -> nextIndex
@@ -408,38 +402,12 @@ class PlaybackService : Service() {
     private fun getPreviousIndex(): Int? {
         if (snapshot.queue.isEmpty()) return null
 
-        if (snapshot.playOrderMode == PlayOrderMode.SHUFFLE) {
-            val previousPosition = shuffledPosition - 1
-            if (previousPosition in shuffledIndexes.indices) {
-                shuffledPosition = previousPosition
-                return shuffledIndexes[shuffledPosition]
-            }
-            return if (snapshot.loopMode == LoopMode.QUEUE) {
-                shuffledPosition = shuffledIndexes.lastIndex
-                shuffledIndexes.lastOrNull()
-            } else {
-                null
-            }
-        }
-
         val previousIndex = snapshot.currentIndex - 1
         return when {
             previousIndex in snapshot.queue.indices -> previousIndex
             snapshot.loopMode == LoopMode.QUEUE -> snapshot.queue.lastIndex
             else -> null
         }
-    }
-
-    private fun rebuildShuffleOrder(currentIndex: Int) {
-        if (snapshot.playOrderMode != PlayOrderMode.SHUFFLE || snapshot.queue.isEmpty()) {
-            shuffledIndexes = emptyList()
-            shuffledPosition = -1
-            return
-        }
-
-        val remainingIndexes = snapshot.queue.indices.filter { it != currentIndex }.shuffled()
-        shuffledIndexes = listOf(currentIndex) + remainingIndexes
-        shuffledPosition = 0
     }
 
     private fun updateForegroundNotification() {
@@ -501,7 +469,7 @@ class PlaybackService : Service() {
             )
             .putString(
                 MediaMetadataCompat.METADATA_KEY_ALBUM,
-                snapshot.queueTitle ?: currentItem?.folderPath.orEmpty()
+                snapshot.queueDisplayTitle()
             )
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, snapshot.durationMs.toLong())
         loadArtworkBitmap(currentItem?.artworkUriString)?.let {

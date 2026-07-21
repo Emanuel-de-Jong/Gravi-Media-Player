@@ -1,5 +1,6 @@
 package com.example.gravimediaplayer.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,16 +32,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.gravimediaplayer.DefaultStartPlayOrder
 import com.example.gravimediaplayer.GraviPickerSettings
 import com.example.gravimediaplayer.ui.theme.GraviMediaPlayerTheme
 
 @Composable
 fun SettingsScreen(
     rootUriString: String?,
+    defaultStartPlayOrder: DefaultStartPlayOrder,
     genreSeparator: String,
     showBrowserThumbnails: Boolean,
     graviPickerSettings: GraviPickerSettings,
     onChooseFolder: () -> Unit,
+    onDefaultStartPlayOrderChanged: (DefaultStartPlayOrder) -> Unit,
     onGenreSeparatorChanged: (String) -> Unit,
     onApplyGenreSeparator: (String) -> Unit,
     onShowBrowserThumbnailsChanged: (Boolean) -> Unit,
@@ -65,6 +70,10 @@ fun SettingsScreen(
             label = "Show browser thumbnails",
             checked = showBrowserThumbnails,
             onCheckedChanged = onShowBrowserThumbnailsChanged,
+        )
+        DefaultStartPlayOrderSetting(
+            selectedOrder = defaultStartPlayOrder,
+            onOrderSelected = onDefaultStartPlayOrderChanged,
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -177,6 +186,36 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun DefaultStartPlayOrderSetting(
+    selectedOrder: DefaultStartPlayOrder,
+    onOrderSelected: (DefaultStartPlayOrder) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        SettingLabel(
+            label = "Default file and genre start order",
+            infoText = "Controls whether opening a file from Folders or a genre from Genres starts ordered or shuffled by default.",
+        )
+        DefaultStartPlayOrder.entries.forEach { order ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOrderSelected(order) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = selectedOrder == order,
+                    onClick = { onOrderSelected(order) },
+                )
+                Text(order.label)
+            }
+        }
+    }
+}
+
+@Composable
 private fun IntegerSettingField(
     label: String,
     value: Int,
@@ -281,10 +320,12 @@ fun SettingsScreenPreview() {
     GraviMediaPlayerTheme {
         SettingsScreen(
             rootUriString = null,
+            defaultStartPlayOrder = DefaultStartPlayOrder.ORDERED,
             genreSeparator = ";",
             showBrowserThumbnails = false,
             graviPickerSettings = GraviPickerSettings(),
             onChooseFolder = {},
+            onDefaultStartPlayOrderChanged = {},
             onGenreSeparatorChanged = {},
             onApplyGenreSeparator = {},
             onShowBrowserThumbnailsChanged = {},

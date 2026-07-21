@@ -40,16 +40,18 @@ data class TagGroup(
 data class PendingPlaybackRequest(
     val queue: List<AudioItem>,
     val startIndex: Int,
-    val queueTitle: String,
-    val playOrderMode: PlayOrderMode,
+    val queueType: QueueType,
+    val queueName: String,
+    val queueOrder: QueueOrder,
 )
 
 data class PlaybackSnapshot(
     val queue: List<AudioItem> = emptyList(),
-    val queueTitle: String? = null,
+    val queueType: QueueType? = null,
+    val queueName: String? = null,
     val currentIndex: Int = -1,
     val isPlaying: Boolean = false,
-    val playOrderMode: PlayOrderMode = PlayOrderMode.IN_ORDER,
+    val queueOrder: QueueOrder = QueueOrder.ORDERED,
     val loopMode: LoopMode = LoopMode.QUEUE,
     val positionMs: Int = 0,
     val durationMs: Int = 0,
@@ -60,20 +62,26 @@ data class PlaybackSnapshot(
         get() = queue.getOrNull(currentIndex)
 }
 
-enum class PlayOrderMode(
+enum class QueueType(
     val label: String,
 ) {
-    IN_ORDER("In order"),
-    SHUFFLE("Shuffle"),
-    GRAVI_SHUFFLE("Gravi shuffle"),
+    FOLDER("Folder"),
+    GENRE("Genre"),
 }
 
-fun PlayOrderMode.next(): PlayOrderMode {
-    return when (this) {
-        PlayOrderMode.IN_ORDER -> PlayOrderMode.SHUFFLE
-        PlayOrderMode.SHUFFLE -> PlayOrderMode.GRAVI_SHUFFLE
-        PlayOrderMode.GRAVI_SHUFFLE -> PlayOrderMode.IN_ORDER
-    }
+enum class QueueOrder(
+    val label: String,
+) {
+    ORDERED("Ordered"),
+    SHUFFLED("Shuffled"),
+    GRAVI_SHUFFLED("Gravi"),
+}
+
+enum class DefaultStartPlayOrder(
+    val label: String,
+) {
+    ORDERED("Ordered"),
+    SHUFFLED("Shuffled"),
 }
 
 enum class LoopMode(
@@ -101,4 +109,14 @@ fun LoopMode.next(): LoopMode {
         LoopMode.QUEUE -> LoopMode.SONG
         LoopMode.SONG -> LoopMode.OFF
     }
+}
+
+fun PlaybackSnapshot.queueDisplayTitle(): String {
+    val currentQueueType = queueType
+    val currentQueueName = queueName
+    if (currentQueueType == null || currentQueueName == null) {
+        return currentItem?.folderPath ?: "Select a file or folder to begin."
+    }
+
+    return "${queueOrder.label} ${currentQueueType.label}: $currentQueueName"
 }
