@@ -1,6 +1,7 @@
 package com.example.gravimediaplayer.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,16 +9,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,9 +55,12 @@ fun SettingsScreen(
     onResetSettings: () -> Unit,
     onClearCaches: () -> Unit,
 ) {
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
             .padding(start = 12.dp, top = 12.dp, end = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -190,26 +196,31 @@ private fun DefaultStartPlayOrderSetting(
     selectedOrder: DefaultStartPlayOrder,
     onOrderSelected: (DefaultStartPlayOrder) -> Unit,
 ) {
-    Column(
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         SettingLabel(
             label = "Default file and genre start order",
             infoText = "Controls whether opening a file from Folders or a genre from Genres starts ordered or shuffled by default.",
         )
-        DefaultStartPlayOrder.entries.forEach { order ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOrderSelected(order) },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(
-                    selected = selectedOrder == order,
-                    onClick = { onOrderSelected(order) },
-                )
-                Text(order.label)
+        Row {
+            TextButton(onClick = { expanded = true }) {
+                Text(selectedOrder.label)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DefaultStartPlayOrder.entries.forEach { order ->
+                    DropdownMenuItem(
+                        text = { Text(order.label) },
+                        onClick = {
+                            expanded = false
+                            onOrderSelected(order)
+                        },
+                    )
+                }
             }
         }
     }
